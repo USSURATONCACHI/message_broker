@@ -1,0 +1,2 @@
+[workspace]
+members = ["in_memory_db"]
