@@ -1,2 +1,2 @@
 [workspace]
-members = ["in_memory_db"]
+members = [ "client","in_memory_db", "server"]

@@ -1,7 +1,6 @@
 use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 pub mod chunk;
 
@@ -56,18 +55,18 @@ fn main() {
     let mut all_threads = Vec::new();
 
     // Create array
-    let array = Chunk::<String>::new(None, 128);
+    let array = Chunk::<String>::new(None, 1024);
     let array = Arc::new(array);
     
     // Add N writers
-    for i in 0..8000 {
+    for i in 0..20 {
         let array = array.clone();
         let t = std::thread::spawn(move || push_to_array(i, &array));
         all_threads.push(t);
     }
 
     // Add N readers
-    for i in 0..800 {
+    for i in 0..20 {
         let array = array.clone();
         let t = std::thread::spawn(move || print_array(i, &array).unwrap());
         all_threads.push(t);
