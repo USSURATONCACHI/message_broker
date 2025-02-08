@@ -1,2 +1,3 @@
 [workspace]
-members = [ "client","in_memory_db", "server"]
+members = [ "broker", "in_memory_db"]
+resolver = "1"

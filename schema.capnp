@@ -15,5 +15,5 @@ interface Echo {
     }
 
     echo @0 (request :EchoRequest) -> (reply :EchoResponse);
-    ping @1 () -> (reply :Ping);
+    # ping @1 () -> (reply :Ping);
 }

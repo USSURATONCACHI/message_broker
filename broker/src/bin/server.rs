@@ -1,64 +1,33 @@
-use std::future::Future;
-use std::io::Error;
 use std::net::SocketAddr;
-use std::ops::DerefMut;
-use std::pin::pin;
-use std::pin::Pin;
-use std::sync::Mutex;
 use std::sync::Arc;
-use std::time::Duration;
 
+use broker::util::stream_to_rpc_network;
+use broker::util::SendFuture;
 use capnp::capability::Promise;
-use capnp_rpc::rpc_twoparty_capnp;
-use capnp_rpc::twoparty;
+use capnp_rpc::pry;
 use capnp_rpc::RpcSystem;
-use tokio::io::AsyncWriteExt;
 use tokio::sync::Notify;
 use tokio::net::TcpStream;
 use tokio::net::TcpListener;
-use tokio::time::sleep;
-use tokio_util::compat::FuturesAsyncWriteCompatExt;
-use tokio_util::compat::TokioAsyncReadCompatExt;
-use tokio_util::compat::TokioAsyncWriteCompatExt;
 
 
-mod schema_capnp {
-    include!(concat!(env!("OUT_DIR"), "/schema_capnp.rs"));
+use broker::schema_capnp::echo;
+struct EchoImpl {
+    pub peer: SocketAddr
 }
-
-
-use crate::schema_capnp::echo;
-struct EchoImpl;
 
 impl echo::Server for EchoImpl {
     fn echo(&mut self, params: echo::EchoParams, mut results: echo::EchoResults) -> Promise<(), capnp::Error> {
-        todo!()
-    }
-}
+        let request = pry!(pry!(params.get()).get_request());
 
+        let in_message = pry!(pry!(request.get_message()).to_str());
+        let message = format!("Hello, {in_message}!");
+        
+        results.get().init_reply().set_message(message);
 
-struct SendFuture<F: Future> {
-    inner: Arc<Mutex<F>>,
-}
+        println!("Peer {} said: `{in_message}`", self.peer);
 
-impl<F: Future + Unpin> From<F> for SendFuture<F> {
-    fn from(value: F) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(value))
-        }
-    }
-}
-
-unsafe impl<F: Future + Unpin> Send for SendFuture<F> {}
-
-impl<F: Future + Unpin> Future for SendFuture<F> {
-    type Output = F::Output;
-
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        let mut lock = self.inner.lock().unwrap();
-        let mutref = lock.deref_mut();
-        let pin = Pin::new(mutref);
-        pin.poll(cx)
+        Promise::ok(())
     }
 }
 
@@ -78,14 +47,14 @@ async fn main() -> std::io::Result<()> {
 
 struct Server {
     interrupt: Notify,
-    last_message: Mutex<String>,
+    // _last_message: Mutex<String>,
 }
 
 impl Server {
     fn new() -> Self {
         Self {
             interrupt: Notify::new(),
-            last_message: Mutex::new("Start".to_string())
+            // last_message: Mutex::new("Start".to_string())
         }
     }
 
@@ -103,10 +72,11 @@ impl Server {
                 accepted = listener.accept() => {
                     match accepted {
                         Err(e) => eprintln!("Failed to accept connection: {e}"),
-                        Ok((stream, addr)) => 
-                            connections.push(
-                                tokio::spawn(self.clone().process_connection(stream, addr))
-                            ),
+                        Ok((stream, addr)) => {
+                            let process_fut = self.clone().process_connection(stream, addr);
+                            let send = SendFuture::from(process_fut);
+                            connections.push(tokio::spawn(send));
+                        }
                     };
                 }
             }
@@ -121,27 +91,20 @@ impl Server {
         Ok(())
     }
 
-    async fn process_connection(self: Arc<Self>, mut stream: TcpStream, addr: SocketAddr) {
+    async fn process_connection(self: Arc<Self>, stream: TcpStream, addr: SocketAddr) {
         println!("Accepted connection from addr: {addr}");
 
-        let (reader, writer) = stream.into_split();
+        let server_rpc = EchoImpl {
+            peer: addr
+        };
 
-        let reader = futures::io::BufReader::new(TokioAsyncReadCompatExt::compat(reader));
-        let writer = futures::io::BufWriter::new(TokioAsyncWriteCompatExt::compat_write(writer));
+        let network = stream_to_rpc_network(stream);
+        let client: echo::Client = capnp_rpc::new_client(server_rpc);
 
-        let network = twoparty::VatNetwork::new(
-            reader,
-            writer,
-            rpc_twoparty_capnp::Side::Server,
-            Default::default(),
-        );
-
-        let rpc_system = RpcSystem::new(Box::new(network), None);
+        let rpc_system = RpcSystem::new(Box::new(network), Some(client.clone().client));
         
-        tokio::task::spawn(SendFuture::from(rpc_system))
-            .await
-            .unwrap()
-            .unwrap();
+        SendFuture::from(rpc_system).await.unwrap();
+        println!("Peer {addr} disconnected");
     }
 
     fn interrupt(&self) {

@@ -101,10 +101,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f68f53c83ab957f72c32642f3868eec03eb974d1fb82e453128456482613d36"
 
 [[package]]
-name = "build-print"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a2128d00b7061b82b72844a351e80acd29e05afc60e9261e2ac90dca9ecc2ac"
+name = "broker"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "capnp",
+ "capnp-rpc",
+ "capnpc",
+ "ctrlc",
+ "futures",
+ "tokio",
+ "tokio-util",
+]
 
 [[package]]
 name = "bytes"
@@ -163,10 +171,6 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
-
-[[package]]
-name = "client"
-version = "0.1.0"
 
 [[package]]
 name = "crossbeam"
@@ -490,21 +494,6 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
-
-[[package]]
-name = "server"
-version = "0.1.0"
-dependencies = [
- "actix",
- "build-print",
- "capnp",
- "capnp-rpc",
- "capnpc",
- "ctrlc",
- "futures",
- "tokio",
- "tokio-util",
-]
 
 [[package]]
 name = "signal-hook-registry"
