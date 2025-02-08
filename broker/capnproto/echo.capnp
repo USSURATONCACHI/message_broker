@@ -1,5 +1,4 @@
-@0xd39a69b7918524e0;
-
+@0xfe159ddc49b4a4d1;
 
 interface Echo { 
     struct EchoRequest {
@@ -10,10 +9,10 @@ interface Echo {
         message @0 :Text;
     }
 
-    struct Ping {
-        message @0 :Text;
-    }
-
     echo @0 (request :EchoRequest) -> (reply :EchoResponse);
-    # ping @1 () -> (reply :Ping);
+    subscribeToPings @1 (receiver :PingReceiver) -> ();
+}
+
+interface PingReceiver {
+    ping @0 (seq :UInt64) -> ();
 }

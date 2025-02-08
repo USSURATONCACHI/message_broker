@@ -1,5 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::Weak;
+use std::time::Duration;
 
 use broker::util::stream_to_rpc_network;
 use broker::util::SendFuture;
@@ -12,9 +14,22 @@ use tokio::net::TcpListener;
 
 
 use broker::schema_capnp::echo;
+use broker::schema_capnp::ping_receiver;
 struct EchoImpl {
-    pub peer: SocketAddr
+    peer: SocketAddr,
+    pings_receiver: Option<Arc<ping_receiver::Client>>, 
 }
+
+impl EchoImpl {
+    pub fn new(peer: SocketAddr) -> Self {
+        Self {
+            peer,
+            pings_receiver: None,
+        }
+    }
+}
+
+// fn subscribe_to_pings(&mut self, _: SubscribeToPingsParams<>, _: SubscribeToPingsResults<>) -> ::capnp::capability::Promise<(), ::capnp::Error> { ::capnp::capability::Promise::err(::capnp::Error::unimplemented("method echo::Server::subscribe_to_pings not implemented".to_string())) }
 
 impl echo::Server for EchoImpl {
     fn echo(&mut self, params: echo::EchoParams, mut results: echo::EchoResults) -> Promise<(), capnp::Error> {
@@ -26,6 +41,44 @@ impl echo::Server for EchoImpl {
         results.get().init_reply().set_message(message);
 
         println!("Peer {} said: `{in_message}`", self.peer);
+
+        Promise::ok(())
+    }
+
+    fn subscribe_to_pings(&mut self, params: echo::SubscribeToPingsParams, _: echo::SubscribeToPingsResults) -> Promise<(), capnp::Error> {
+        let receiver: ping_receiver::Client = pry!(pry!(params.get()).get_receiver() );
+
+        println!("Peer {} tried to subscribe to pings.", self.peer);
+        self.pings_receiver = Some(Arc::new(receiver));
+
+        {
+            let weak = Arc::downgrade(self.pings_receiver.as_ref().unwrap());
+            async fn ping_while_alive(weak: Weak<ping_receiver::Client>) {
+                let mut interval = tokio::time::interval(Duration::from_secs(1));
+                let mut seq = 0u64;
+
+                loop {
+                    interval.tick().await;
+
+                    match weak.upgrade() {
+                        Some(client) => {
+                            let mut request = client.ping_request();
+                            request.get().set_seq(seq);
+                        
+                            let reply = request.send().promise.await;
+                            if reply.is_err() {
+                                break;
+                            }
+                        },
+                        None => break,
+                    }
+
+                    seq += 1;
+                }
+            }
+
+            tokio::spawn(SendFuture::from(ping_while_alive(weak)));
+        }
 
         Promise::ok(())
     }
@@ -94,9 +147,7 @@ impl Server {
     async fn process_connection(self: Arc<Self>, stream: TcpStream, addr: SocketAddr) {
         println!("Accepted connection from addr: {addr}");
 
-        let server_rpc = EchoImpl {
-            peer: addr
-        };
+        let server_rpc = EchoImpl::new(addr);
 
         let network = stream_to_rpc_network(stream);
         let client: echo::Client = capnp_rpc::new_client(server_rpc);
@@ -111,6 +162,8 @@ impl Server {
         self.interrupt.notify_waiters();
     }
 
+}
+impl Server {
     fn set_interrupt_handler(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
 

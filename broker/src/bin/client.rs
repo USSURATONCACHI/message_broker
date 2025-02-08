@@ -1,10 +1,28 @@
-use std::net::{SocketAddr, ToSocketAddrs};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use std::net::ToSocketAddrs;
+use std::net::SocketAddr;
+use capnp::capability::Promise;
+use capnp_rpc::pry;
+use tokio::io::BufReader;
+use tokio::io::AsyncBufReadExt;
 
-use capnp_rpc::{rpc_twoparty_capnp, RpcSystem};
+use capnp_rpc::RpcSystem;
+use capnp_rpc::rpc_twoparty_capnp;
 use tokio::net::TcpStream;
 
-use broker::{schema_capnp::echo::{self}, util::{stream_to_rpc_network, SendFuture}};
+use broker::util::SendFuture;
+use broker::util::stream_to_rpc_network;
+use broker::schema_capnp::echo;
+use broker::schema_capnp::ping_receiver;
+
+struct PingReceiverImpl;
+
+impl ping_receiver::Server for PingReceiverImpl {
+    fn ping(&mut self, params: ping_receiver::PingParams, _: ping_receiver::PingResults) -> Promise<(), capnp::Error> {
+        let seq = pry!(params.get()).get_seq();
+        println!("Server sent a ping event: {seq}");
+        Promise::ok(())
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,8 +38,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rpc_system = RpcSystem::new(Box::new(network), None);
     let echo_client: echo::Client = rpc_system.bootstrap(rpc_twoparty_capnp::Side::Client);
 
+    let ping_receiver = PingReceiverImpl;
+    let ping_receiver_client: ping_receiver::Client = capnp_rpc::new_client(ping_receiver);
+
     tokio::spawn(SendFuture::from(rpc_system));
 
+    // Do work
+    subscribe_request(&echo_client, ping_receiver_client).await?;
     do_work(echo_client).await?;
 
     Ok(())
@@ -74,6 +97,13 @@ async fn echo_request(client: &echo::Client, message: &str) -> Result<String, Bo
         .to_string()?;
 
     Ok(message)
+}
+
+async fn subscribe_request(client: &echo::Client, ping_receiver: ping_receiver::Client) -> Result<(), Box<dyn std::error::Error>> {
+    let mut request = client.subscribe_to_pings_request();
+    request.get().set_receiver(ping_receiver);
+    request.send().promise.await?;
+    Ok(())
 }
 
 
