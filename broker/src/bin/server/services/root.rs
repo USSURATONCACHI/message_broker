@@ -1,8 +1,5 @@
-use std::net::SocketAddr;
-
-use broker::{auth_capnp::auth_service, echo_capnp::echo, main_capnp, util::{Handle, StoreRegistry}};
-use capnp::{capability::{Client, Promise}, Error};
-use capnp_rpc::pry;
+use broker::{auth_capnp::auth_service, echo_capnp::echo};
+use capnp::{capability::Promise, Error};
 
 use broker::main_capnp::root_service;
 
@@ -18,7 +15,7 @@ impl root_service::Server for RootService {
         results.get().set_service(self.auth.clone());
         Promise::ok(())
     }
-
+    
     fn echo(&mut self, _: EchoParams, mut results: EchoResults) -> Promise<(), Error> { 
         results.get().set_service(self.echo.clone());
         Promise::ok(())

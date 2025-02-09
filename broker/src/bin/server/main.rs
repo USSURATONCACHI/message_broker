@@ -1,14 +1,10 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::Weak;
-use std::time::Duration;
 
 use broker::util::stream_to_rpc_network;
 use broker::util::Handle;
 use broker::util::SendFuture;
 use broker::util::StoreRegistry;
-use capnp::capability::Promise;
-use capnp_rpc::pry;
 use capnp_rpc::RpcSystem;
 use services::AuthService;
 use services::EchoService;
@@ -18,28 +14,11 @@ use tokio::sync::Notify;
 use tokio::net::TcpStream;
 use tokio::net::TcpListener;
 
-use broker::echo_capnp::echo;
 use broker::main_capnp::root_service;
-use broker::echo_capnp::ping_receiver;
 
 mod services;
 mod stores;
-
-struct EchoImpl {
-    peer: SocketAddr,
-    pings_receiver: Option<Arc<ping_receiver::Client>>, 
-}
-
-impl EchoImpl {
-    pub fn new(peer: SocketAddr) -> Self {
-        Self {
-            peer,
-            pings_receiver: None,
-        }
-    }
-}
-
-// fn subscribe_to_pings(&mut self, _: SubscribeToPingsParams<>, _: SubscribeToPingsResults<>) -> ::capnp::capability::Promise<(), ::capnp::Error> { ::capnp::capability::Promise::err(::capnp::Error::unimplemented("method echo::Server::subscribe_to_pings not implemented".to_string())) }
+mod datatypes;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -109,19 +88,24 @@ impl Server {
         println!("Accepted connection from addr: {addr}");
 
         // Services
+        println!("[{addr}] Creating services");
         let auth = AuthService::new(addr, &self.stores);
         let echo = EchoService::new(addr, &self.stores);
 
+        println!("[{addr}] Creating root service");
         let root = RootService {
             auth: capnp_rpc::new_client(auth), 
             echo: capnp_rpc::new_client(echo), 
         };
+        println!("[{addr}] Creating root service client");
         let root_client: root_service::Client = capnp_rpc::new_client(root);
 
         // Network
+        println!("[{addr}] Creating network");
         let network = stream_to_rpc_network(stream);
         let rpc_system = RpcSystem::new(Box::new(network), Some(root_client.client));
         
+        println!("[{addr}] Starting an RPC system");
         SendFuture::from(rpc_system).await.unwrap();
         println!("Peer {addr} disconnected");
     }

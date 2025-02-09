@@ -3,8 +3,7 @@
 using Util = import "util.capnp";
 using Util.Uuid;
 using Util.Timestamp;
-using Util.AuthResult;
-using Util.Authorized;
+using Util.Result;
 using Util.None;
 
 struct Message {
@@ -22,11 +21,11 @@ interface MessageService {
         }
     }
 
-    postMessage @0 (topicId :Uuid, content :Text) -> (message :AuthResult(Message, Error));
+    postMessage @0 (topicId :Uuid, content :Text) -> (message :Result(Message, Error));
     
-    deleteMessage @1 (messageId :Uuid)  -> (result :AuthResult(None, Error));
+    deleteMessage @1 (messageId :Uuid)  -> (result :Result(None, Error));
 
-    getMessages @2 (topicId :Uuid) -> (messages :AuthResult(List(Message), Error));
+    getMessages @2 (topicId :Uuid) -> (messages :Result(List(Message), Error));
 }
 
 # Subscription Management
@@ -38,12 +37,12 @@ interface SubscriptionService {
         }
     }
 
-    subscribe @0 (topicId :Uuid) -> (result :AuthResult(None, Error));
-    unsubscribe @1 (topicId :Uuid) -> (result :AuthResult(None, Error));
-    listSubscriptions @2 () -> (topicIds :Authorized(List(Uuid)));
+    subscribe @0 (topicId :Uuid) -> (result :Result(None, Error));
+    unsubscribe @1 (topicId :Uuid) -> (result :Result(None, Error));
+    listSubscriptions @2 () -> (topicIds :List(Uuid));
     
     # SSE-style live updates
-    subscribeToLiveMessages @3 (receiver :MessageReceiver) -> (result :Authorized(None));
+    subscribeToLiveMessages @3 (receiver :MessageReceiver) -> ();
 }
 
 interface MessageReceiver {

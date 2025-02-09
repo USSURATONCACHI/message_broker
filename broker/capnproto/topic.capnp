@@ -3,14 +3,13 @@
 using Util = import "util.capnp";
 using Util.Uuid;
 using Util.Timestamp;
-using Util.AuthResult;
-using Util.Authorized;
+using Util.Result;
 using Util.None;
 
 struct Topic {
     uuid @0 :Uuid;
     name @1 :Text;
-    ownerId @2 :Uuid;
+    ownerUsername @2 :Text;
     createdAt @3 :Timestamp;
 }
 
@@ -22,11 +21,11 @@ interface TopicService {
         }
     }
 
-    createTopic @0 (name :Text) -> (topic :AuthResult(Topic, Error));
+    createTopic @0 (name :Text) -> (topic :Result(Topic, Error));
 
-    getTopic @1 (topicId :Uuid) -> (topic :AuthResult(Topic, Error));
-    getAllTopics @2 () -> (topics :Authorized(List(Topic)));
+    getTopic @1 (topicId :Uuid) -> (topic :Result(Topic, Error));
+    getAllTopics @2 () -> (topics :List(Topic));
 
-    updateTopic @3 (topicId :Uuid, name :Text) -> (topic :AuthResult(Topic, Error));
-    deleteTopic @4 (topicId :Uuid) -> (result :AuthResult(None, Error));
+    updateTopic @3 (topicId :Uuid, name :Text) -> (topic :Result(Topic, Error));
+    deleteTopic @4 (topicId :Uuid) -> (result :Result(None, Error));
 }

@@ -30,7 +30,7 @@ impl auth_service::Server for AuthService {
 
         Promise::ok(())
     }
-    fn logout(&mut self, params: auth_service::LogoutParams<>, _: auth_service::LogoutResults<>) -> Promise<(), Error> { 
+    fn logout(&mut self, _params: auth_service::LogoutParams<>, _: auth_service::LogoutResults<>) -> Promise<(), Error> { 
         self.login_store.get_mut()
             .log_peer_out(&self.peer);
 

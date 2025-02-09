@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::ops::Deref;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use capnp::Error;
 
-pub type Username = String;
+use crate::datatypes::Username;
+
 
 #[derive(Default)]
 pub struct LoginStore {
@@ -20,7 +19,7 @@ impl LoginStore {
     pub fn get_login(&self, peer: &SocketAddr) -> Option<Username> {
         self.usernames_per_socket
             .get(peer)
-            .map(|x| x.clone())
+            .cloned()
     }
 
     pub fn check_login(&self, peer: &SocketAddr) -> Result<Username, Error> {

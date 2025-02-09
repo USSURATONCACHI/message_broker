@@ -43,7 +43,9 @@ impl echo::Server for EchoService {
     }
 
     fn subscribe_to_pings(&mut self, params: echo::SubscribeToPingsParams, _: echo::SubscribeToPingsResults) -> Promise<(), capnp::Error> {
+        println!("Checking authorization...");
         let username = pry!(self.login_store.get().check_login(&self.peer));
+        println!("Username: {username}");
 
         let receiver: ping_receiver::Client = pry!(pry!(params.get()).get_receiver() );
 
