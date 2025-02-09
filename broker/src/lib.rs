@@ -1,2 +1,4 @@
-pub mod schema_capnp;
+
+include!("capnp.rs");
+
 pub mod util;

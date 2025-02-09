@@ -11,8 +11,8 @@ use tokio::net::TcpStream;
 
 use broker::util::SendFuture;
 use broker::util::stream_to_rpc_network;
-use broker::schema_capnp::echo;
-use broker::schema_capnp::ping_receiver;
+use broker::echo_capnp::echo;
+use broker::echo_capnp::ping_receiver;
 
 struct PingReceiverImpl;
 

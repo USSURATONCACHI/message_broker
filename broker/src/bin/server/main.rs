@@ -4,17 +4,27 @@ use std::sync::Weak;
 use std::time::Duration;
 
 use broker::util::stream_to_rpc_network;
+use broker::util::Handle;
 use broker::util::SendFuture;
+use broker::util::StoreRegistry;
 use capnp::capability::Promise;
 use capnp_rpc::pry;
 use capnp_rpc::RpcSystem;
+use services::AuthService;
+use services::EchoService;
+use services::RootService;
+use stores::LoginStore;
 use tokio::sync::Notify;
 use tokio::net::TcpStream;
 use tokio::net::TcpListener;
 
+use broker::echo_capnp::echo;
+use broker::main_capnp::root_service;
+use broker::echo_capnp::ping_receiver;
 
-use broker::schema_capnp::echo;
-use broker::schema_capnp::ping_receiver;
+mod services;
+mod stores;
+
 struct EchoImpl {
     peer: SocketAddr,
     pings_receiver: Option<Arc<ping_receiver::Client>>, 
@@ -30,59 +40,6 @@ impl EchoImpl {
 }
 
 // fn subscribe_to_pings(&mut self, _: SubscribeToPingsParams<>, _: SubscribeToPingsResults<>) -> ::capnp::capability::Promise<(), ::capnp::Error> { ::capnp::capability::Promise::err(::capnp::Error::unimplemented("method echo::Server::subscribe_to_pings not implemented".to_string())) }
-
-impl echo::Server for EchoImpl {
-    fn echo(&mut self, params: echo::EchoParams, mut results: echo::EchoResults) -> Promise<(), capnp::Error> {
-        let request = pry!(pry!(params.get()).get_request());
-
-        let in_message = pry!(pry!(request.get_message()).to_str());
-        let message = format!("Hello, {in_message}!");
-        
-        results.get().init_reply().set_message(message);
-
-        println!("Peer {} said: `{in_message}`", self.peer);
-
-        Promise::ok(())
-    }
-
-    fn subscribe_to_pings(&mut self, params: echo::SubscribeToPingsParams, _: echo::SubscribeToPingsResults) -> Promise<(), capnp::Error> {
-        let receiver: ping_receiver::Client = pry!(pry!(params.get()).get_receiver() );
-
-        println!("Peer {} tried to subscribe to pings.", self.peer);
-        self.pings_receiver = Some(Arc::new(receiver));
-
-        {
-            let weak = Arc::downgrade(self.pings_receiver.as_ref().unwrap());
-            async fn ping_while_alive(weak: Weak<ping_receiver::Client>) {
-                let mut interval = tokio::time::interval(Duration::from_secs(1));
-                let mut seq = 0u64;
-
-                loop {
-                    interval.tick().await;
-
-                    match weak.upgrade() {
-                        Some(client) => {
-                            let mut request = client.ping_request();
-                            request.get().set_seq(seq);
-                        
-                            let reply = request.send().promise.await;
-                            if reply.is_err() {
-                                break;
-                            }
-                        },
-                        None => break,
-                    }
-
-                    seq += 1;
-                }
-            }
-
-            tokio::spawn(SendFuture::from(ping_while_alive(weak)));
-        }
-
-        Promise::ok(())
-    }
-}
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -100,14 +57,18 @@ async fn main() -> std::io::Result<()> {
 
 struct Server {
     interrupt: Notify,
-    // _last_message: Mutex<String>,
+    stores: StoreRegistry,
 }
 
 impl Server {
     fn new() -> Self {
+        let mut stores = StoreRegistry::new();
+
+        stores.add(Handle::<LoginStore>::new());
+
         Self {
             interrupt: Notify::new(),
-            // last_message: Mutex::new("Start".to_string())
+            stores,
         }
     }
 
@@ -147,12 +108,19 @@ impl Server {
     async fn process_connection(self: Arc<Self>, stream: TcpStream, addr: SocketAddr) {
         println!("Accepted connection from addr: {addr}");
 
-        let server_rpc = EchoImpl::new(addr);
+        // Services
+        let auth = AuthService::new(addr, &self.stores);
+        let echo = EchoService::new(addr, &self.stores);
 
+        let root = RootService {
+            auth: capnp_rpc::new_client(auth), 
+            echo: capnp_rpc::new_client(echo), 
+        };
+        let root_client: root_service::Client = capnp_rpc::new_client(root);
+
+        // Network
         let network = stream_to_rpc_network(stream);
-        let client: echo::Client = capnp_rpc::new_client(server_rpc);
-
-        let rpc_system = RpcSystem::new(Box::new(network), Some(client.clone().client));
+        let rpc_system = RpcSystem::new(Box::new(network), Some(root_client.client));
         
         SendFuture::from(rpc_system).await.unwrap();
         println!("Peer {addr} disconnected");
