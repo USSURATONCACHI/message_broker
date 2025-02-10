@@ -8,7 +8,7 @@ using Util.None;
 
 struct Message {
     uuid @0 :Uuid;
-    authorUuid @1 :Uuid;
+    authorName @1 :Text;
     content @2 :Text;
     timestamp @3 :Timestamp;
 }

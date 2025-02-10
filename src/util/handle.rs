@@ -20,6 +20,12 @@ impl<T: Default> Handle<T> {
     }
 }
 
+impl <T> From<T> for Handle<T> {
+    fn from(value: T) -> Self {
+        Self(Arc::new(RwLock::new(value)))
+    }
+}
+
 impl<T> Handle<T> {
     pub fn get(&self) -> RwLockReadGuard<T> {
         self.0.read().unwrap()

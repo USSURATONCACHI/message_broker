@@ -1,16 +1,20 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use broker::concurrent_list::Chunk;
 use broker::util::stream_to_rpc_network;
 use broker::util::Handle;
 use broker::util::SendFuture;
 use broker::util::StoreRegistry;
 use capnp_rpc::RpcSystem;
+use datatypes::Message;
+use datatypes::Topic;
 use services::AuthService;
 use services::EchoService;
 use services::MessageService;
 use services::RootService;
 use services::TopicService;
+use stores::CrudStore;
 use stores::LoginStore;
 use tokio::sync::Notify;
 use tokio::net::TcpStream;
@@ -45,7 +49,10 @@ impl Server {
     fn new() -> Self {
         let mut stores = StoreRegistry::new();
 
+        let messages = Chunk::<Message>::new(None, 256);
+        stores.add(Handle::from(messages));
         stores.add(Handle::<LoginStore>::new());
+        stores.add(Handle::<CrudStore<Topic>>::new());
 
         Self {
             interrupt: Notify::new(),
@@ -90,28 +97,25 @@ impl Server {
         println!("Accepted connection from addr: {addr}");
 
         // Services
-        println!("[{addr}] Creating services");
         let auth = AuthService::new(addr, &self.stores);
         let echo = EchoService::new(addr, &self.stores);
         let topic = TopicService::new(addr, &self.stores);
         let message = MessageService::new(addr, &self.stores);
 
-        println!("[{addr}] Creating root service");
+        // Root service
         let root = RootService {
             auth: capnp_rpc::new_client(auth), 
             echo: capnp_rpc::new_client(echo), 
             topic: capnp_rpc::new_client(topic),
             message: capnp_rpc::new_client(message),
         };
-        println!("[{addr}] Creating root service client");
         let root_client: root_service::Client = capnp_rpc::new_client(root);
 
         // Network
-        println!("[{addr}] Creating network");
         let network = stream_to_rpc_network(stream);
         let rpc_system = RpcSystem::new(Box::new(network), Some(root_client.client));
         
-        println!("[{addr}] Starting an RPC system");
+        // Launch
         SendFuture::from(rpc_system).await.unwrap();
         println!("Peer {addr} disconnected");
     }

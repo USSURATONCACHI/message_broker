@@ -2,9 +2,14 @@ use std::collections::HashMap;
 
 use uuid::Uuid;
 
-#[derive(Default)]
 pub struct CrudStore<T: Clone> {
     entries: HashMap<Uuid, T>
+}
+
+impl<T: Default + Clone> Default for CrudStore<T> {
+    fn default() -> Self {
+        Self { entries: Default::default() }
+    }
 }
 
 impl<T: Clone> CrudStore<T> {

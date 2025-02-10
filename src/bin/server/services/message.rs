@@ -1,11 +1,13 @@
 use std::net::SocketAddr;
 
+use broker::concurrent_list::Chunk;
 use broker::util::{Handle, StoreRegistry};
 use broker::message_capnp::message_service::{self, DeleteMessageParams, DeleteMessageResults, GetMessagesParams, GetMessagesResults, PostMessageParams};
 use broker::message_capnp::message_service::PostMessageResults;
 use capnp::{capability::Promise, Error};
 use capnp_rpc::pry;
 
+use crate::datatypes::Message;
 use crate::{datatypes::Topic, stores::{CrudStore, LoginStore}};
 
 
@@ -14,7 +16,7 @@ pub struct MessageService {
 
     login_store: Handle<LoginStore>,
     topic_store: Handle<CrudStore<Topic>>,
-    messages: Handle<()>,
+    messages: Handle<Chunk<Message>>,
 }
 
 impl MessageService {
