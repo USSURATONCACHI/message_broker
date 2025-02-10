@@ -12,6 +12,7 @@ pub struct LoginStore {
 }
 
 impl LoginStore {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
     }

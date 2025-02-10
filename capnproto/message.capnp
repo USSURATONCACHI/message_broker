@@ -25,26 +25,30 @@ interface MessageService {
     
     deleteMessage @1 (messageId :Uuid)  -> (result :Result(None, Error));
 
-    getMessages @2 (topicId :Uuid) -> (messages :Result(List(Message), Error));
+    getMessagesSync @2 (topicId :Uuid) -> (messages :Result(List(Message), Error));
 }
 
-# Subscription Management
-interface SubscriptionService {
-    struct Error {
-        union {
-            topicDoesntExist @0 :Void;
-            reserved @1 :Void;
-        }
-    }
+interface MessageStream {
+    write @0 (message :Message) -> stream;
+}
 
-    subscribe @0 (topicId :Uuid) -> (result :Result(None, Error));
-    unsubscribe @1 (topicId :Uuid) -> (result :Result(None, Error));
-    listSubscriptions @2 () -> (topicIds :List(Uuid));
+# # Subscription Management
+# interface SubscriptionService {
+#     struct Error {
+#         union {
+#             topicDoesntExist @0 :Void;
+#             reserved @1 :Void;
+#         }
+#     }
+
+#     subscribe @0 (topicId :Uuid) -> (result :Result(None, Error));
+#     unsubscribe @1 (topicId :Uuid) -> (result :Result(None, Error));
+#     listSubscriptions @2 () -> (topicIds :List(Uuid));
     
-    # SSE-style live updates
-    subscribeToLiveMessages @3 (receiver :MessageReceiver) -> ();
-}
+#     # SSE-style live updates
+#     subscribeToLiveMessages @3 (receiver :MessageReceiver) -> ();
+# }
 
-interface MessageReceiver {
-    newMessage @0 (message :Message) -> ();
-}
+# interface MessageReceiver {
+#     newMessage @0 (message :Message) -> ();
+# }

@@ -1,9 +1,9 @@
 use std::net::SocketAddr;
+use std::ops::Deref;
 
 use broker::concurrent_list::Chunk;
-use broker::message_capnp::message;
 use broker::util::{Handle, StoreRegistry};
-use broker::message_capnp::message_service::{self, DeleteMessageParams, DeleteMessageResults, GetMessagesParams, GetMessagesResults, PostMessageParams};
+use broker::message_capnp::message_service::{self, DeleteMessageParams, DeleteMessageResults, GetMessagesSyncParams, GetMessagesSyncResults, PostMessageParams};
 use broker::message_capnp::message_service::PostMessageResults;
 use capnp::{capability::Promise, Error};
 use capnp_rpc::pry;
@@ -75,15 +75,42 @@ impl message_service::Server for MessageService {
         Promise::ok(())
     }
     
-    fn delete_message(&mut self, params: DeleteMessageParams, mut results: DeleteMessageResults) -> Promise<(), Error> { 
-        let username = pry!(self.login_store.get().check_login(&self.peer));
+    fn delete_message(&mut self, _params: DeleteMessageParams, mut _results: DeleteMessageResults) -> Promise<(), Error> { 
+        let _username = pry!(self.login_store.get().check_login(&self.peer));
         todo!("Messages deletion is not implemented yet");
         // Promise::ok(())
     }
     
-    fn get_messages(&mut self, params: GetMessagesParams, mut results: GetMessagesResults) -> Promise<(), Error> { 
-        let username = pry!(self.login_store.get().check_login(&self.peer));
-        todo!();
+    fn get_messages_sync(&mut self, params: GetMessagesSyncParams, mut results: GetMessagesSyncResults) -> Promise<(), Error> { 
+        let _username = pry!(self.login_store.get().check_login(&self.peer));
+
+        let topic_uuid = pry!(pry!(params.get()).get_topic_id());
+        let topic_uuid = Uuid::from_u64_pair(topic_uuid.get_upper(), topic_uuid.get_lower());
+        
+        // Check that topic exists
+        if self.topic_store.get().get(topic_uuid).is_none() {
+            results.get().init_messages().init_err().set_topic_doesnt_exist(());
+            return Promise::ok(());
+        }
+
+        // We need to know amount of messages beforehand
+        let count = self.messages.get()
+            .iter()
+            .filter(|msg| msg.topic_uuid == topic_uuid)
+            .count();
+
+        // Return all the messages
+        let mut builder = results.get().init_messages().initn_ok(count as u32);
+        for (index, message) in self.messages
+            .get()
+            .iter()
+            .filter(|msg| msg.topic_uuid == topic_uuid)
+            .enumerate()
+        {
+            let capnp_message = builder.reborrow().get(index as u32);
+            fill_capnp_message(capnp_message, message.deref());
+        } 
+        
         Promise::ok(())
     }
     

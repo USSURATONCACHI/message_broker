@@ -4,8 +4,7 @@ use broker::{topic_capnp::topic_service::{CreateTopicParams, CreateTopicResults,
 use broker::topic_capnp::topic_service;
 use capnp::{capability::Promise, Error};
 use capnp_rpc::pry;
-use chrono::{DateTime, Timelike, Utc};
-use uuid::Uuid;
+use chrono::Utc;
 
 use crate::{datatypes::Topic, fillers::fill_capnp_topic, stores::{CrudStore, LoginStore}};
 
@@ -56,9 +55,7 @@ impl topic_service::Server for TopicService {
         let _username = pry!(self.login_store.get().check_login(&self.peer));
 
         let uuid = pry!(pry!(params.get()).get_topic_id());
-        let lower = uuid.get_lower();
-        let upper = uuid.get_upper();
-        let uuid = uuid::Uuid::from_u64_pair(upper, lower);
+        let uuid = uuid::Uuid::from_u64_pair(uuid.get_upper(), uuid.get_lower());
 
         let topic = self.topic_store.get().get(uuid);
 
