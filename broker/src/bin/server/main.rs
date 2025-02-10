@@ -8,7 +8,9 @@ use broker::util::StoreRegistry;
 use capnp_rpc::RpcSystem;
 use services::AuthService;
 use services::EchoService;
+use services::MessageService;
 use services::RootService;
+use services::TopicService;
 use stores::LoginStore;
 use tokio::sync::Notify;
 use tokio::net::TcpStream;
@@ -91,11 +93,15 @@ impl Server {
         println!("[{addr}] Creating services");
         let auth = AuthService::new(addr, &self.stores);
         let echo = EchoService::new(addr, &self.stores);
+        let topic = TopicService::new(addr, &self.stores);
+        let message = MessageService::new(addr, &self.stores);
 
         println!("[{addr}] Creating root service");
         let root = RootService {
             auth: capnp_rpc::new_client(auth), 
             echo: capnp_rpc::new_client(echo), 
+            topic: capnp_rpc::new_client(topic),
+            message: capnp_rpc::new_client(message),
         };
         println!("[{addr}] Creating root service client");
         let root_client: root_service::Client = capnp_rpc::new_client(root);

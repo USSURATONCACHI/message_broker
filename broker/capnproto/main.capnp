@@ -8,4 +8,6 @@ using Echo = import "echo.capnp";
 interface RootService { 
     auth @0 () -> (service :Auth.AuthService);
     echo @1 () -> (service :Echo.Echo);
+    topic @2 () -> (service :Topic.TopicService);
+    message @3 () -> (service :Message.MessageService);
 }
