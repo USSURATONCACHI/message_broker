@@ -25,6 +25,7 @@ use broker::main_capnp::root_service;
 mod services;
 mod stores;
 mod datatypes;
+mod fillers;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

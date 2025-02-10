@@ -12,7 +12,8 @@ pub struct Topic {
 
 #[derive(Clone, Debug, Default)]
 pub struct Message {
-    pub topic: Uuid,
+    pub uuid: Uuid,
+    pub topic_uuid: Uuid,
     pub author_name: Username,
     pub content: String,
     pub timestamp: DateTime<Utc>,
