@@ -4,11 +4,12 @@ use super::{ChunkIterator, ChunkReadGuard};
 
 
 
-use crate::TOTAL_READS;
-use crate::READ_LOCKS;
-use crate::TOTAL_APPENDS;
-use crate::APPEND_LOCKS;
-use crate::APPEND_MISSES;
+pub static TOTAL_READS: AtomicUsize = AtomicUsize::new(0);
+pub static READ_LOCKS: AtomicUsize = AtomicUsize::new(0);
+pub static TOTAL_APPENDS: AtomicUsize = AtomicUsize::new(0);
+pub static APPEND_LOCKS: AtomicUsize = AtomicUsize::new(0);
+pub static APPEND_MISSES: AtomicUsize = AtomicUsize::new(0);
+pub static TOTAL_ELEMENTS_WRITTEN: AtomicUsize = AtomicUsize::new(0);
 
 pub struct Chunk<T> {
     data: Box<[RwLock<Option<T>>]>,

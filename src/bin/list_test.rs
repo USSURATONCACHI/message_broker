@@ -2,20 +2,9 @@ use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-pub mod chunk;
-
-use chunk::Chunk;
+use broker::concurrent_list::{Chunk, APPEND_LOCKS, APPEND_MISSES, READ_LOCKS, TOTAL_APPENDS, TOTAL_ELEMENTS_WRITTEN, TOTAL_READS};
 
 fn print_array(reader_id: usize, array: &Chunk<String>) -> std::io::Result<()> {
-    // let mut elems = Vec::with_capacity(array.node_len());
-    // for elem in array {
-    //     elems.push(elem.clone());
-    // }
-
-    // let elems = array.iter()
-    //     .map(|x| x.clone())
-    //     .collect::<Vec<_>>();
-
     let mut total_read = 0usize;
     for elem in array {
         assert!(elem.starts_with("Phrase "));
@@ -25,11 +14,6 @@ fn print_array(reader_id: usize, array: &Chunk<String>) -> std::io::Result<()> {
     let mut io = std::io::stdout().lock();
 
     writeln!(io, "Reader {reader_id}, {total_read} elements was read")?;
-    // writeln!(io, "let array = vec![ // Reader {reader_id}, length {len}")?;
-    // for elem in elems {
-    //     writeln!(io, "\t\"{}\",", elem.as_str())?;
-    // }
-    // writeln!(io, "];")?;
 
     Ok(())
 }
@@ -42,14 +26,6 @@ fn push_to_array(writer_id: usize, array: &Chunk<String>) {
     }
 }
 
-static TOTAL_READS: AtomicUsize = AtomicUsize::new(0);
-static READ_LOCKS: AtomicUsize = AtomicUsize::new(0);
-
-static TOTAL_APPENDS: AtomicUsize = AtomicUsize::new(0);
-static APPEND_LOCKS: AtomicUsize = AtomicUsize::new(0);
-static APPEND_MISSES: AtomicUsize = AtomicUsize::new(0);
-
-static TOTAL_ELEMENTS_WRITTEN: AtomicUsize = AtomicUsize::new(0);
 
 fn main() {
     let mut all_threads = Vec::new();
@@ -59,14 +35,14 @@ fn main() {
     let array = Arc::new(array);
     
     // Add N writers
-    for i in 0..20 {
+    for i in 0..2000 {
         let array = array.clone();
         let t = std::thread::spawn(move || push_to_array(i, &array));
         all_threads.push(t);
     }
 
     // Add N readers
-    for i in 0..20 {
+    for i in 0..2000 {
         let array = array.clone();
         let t = std::thread::spawn(move || print_array(i, &array).unwrap());
         all_threads.push(t);
