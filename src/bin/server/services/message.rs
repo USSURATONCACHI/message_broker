@@ -1,9 +1,12 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::ops::Deref;
+use std::sync::{Arc, RwLock, Weak};
 
 use broker::concurrent_list::Chunk;
-use broker::util::{Handle, StoreRegistry};
-use broker::message_capnp::message_service::{self, DeleteMessageParams, DeleteMessageResults, GetMessagesSyncParams, GetMessagesSyncResults, PostMessageParams};
+use broker::message_capnp::message_receiver;
+use broker::util::{Handle, SendFuture, StoreRegistry};
+use broker::message_capnp::message_service::{self, DeleteMessageParams, DeleteMessageResults, GetMessagesSyncParams, GetMessagesSyncResults, PostMessageParams, SubscribeParams, SubscribeResults, UnsubscribeParams, UnsubscribeResults};
 use broker::message_capnp::message_service::PostMessageResults;
 use capnp::{capability::Promise, Error};
 use capnp_rpc::pry;
@@ -12,8 +15,11 @@ use uuid::Uuid;
 
 use crate::datatypes::Message;
 use crate::fillers::fill_capnp_message;
+use crate::services::topic;
 use crate::{datatypes::Topic, stores::{CrudStore, LoginStore}};
 
+
+type Receivers = HashMap<Uuid, message_receiver::Client>;
 
 pub struct MessageService {
     peer: SocketAddr,
@@ -21,18 +27,43 @@ pub struct MessageService {
     login_store: Handle<LoginStore>,
     topic_store: Handle<CrudStore<Topic>>,
     messages: Handle<Chunk<Message>>,
+
+    subscribers: Arc<RwLock<Receivers>>,
 }
 
 impl MessageService {
     pub fn new(peer: SocketAddr, stores: &StoreRegistry) -> Self {
+        let messages = stores.get();
+        // let subscribers = Default::default();
+
+        // tokio::spawn(SendFuture::from(future));
+
         Self {
             peer,
             login_store: stores.get(),
             topic_store: stores.get(),
-            messages: stores.get(),
+            messages,
+            subscribers: Default::default(),
         }
     }
 }
+
+// async fn listen_to_messages(messages: Weak<RwLock<Chunk<Message>>>, listeners: Weak<RwLock<Receivers>>) {
+//     loop {
+//         let messages = match messages.upgrade() {
+//             Some(m) => m,
+//             None => break,
+//         };
+//         let listeners = match listeners.upgrade() {
+//             Some(l) => l,
+//             None => break,
+//         };
+
+//         for message in messages.read().unwrap().
+
+
+//     }
+// }
 
 
 impl message_service::Server for MessageService {
@@ -115,4 +146,21 @@ impl message_service::Server for MessageService {
         Promise::ok(())
     }
     
+    fn subscribe(&mut self, params: SubscribeParams, mut resulsts: SubscribeResults) -> Promise<(), Error> {
+        let _username = pry!(self.login_store.get().check_login(&self.peer));
+        let reader = pry!(params.get());
+
+        let topic_uuid = pry!(reader.get_topic_id());
+        let topic_uuid = Uuid::from_u64_pair(topic_uuid.get_upper(), topic_uuid.get_lower());
+
+        let receiver = pry!(reader.get_receiver());
+
+
+
+        todo!()
+    }
+    
+    fn unsubscribe(&mut self, params: UnsubscribeParams, mut results: UnsubscribeResults) ->  Promise<(), Error>{
+        todo!()
+    }
 }

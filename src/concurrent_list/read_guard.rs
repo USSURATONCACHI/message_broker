@@ -5,8 +5,12 @@ pub struct ChunkReadGuard<'a, T> {
     inner_lock: RwLockReadGuard<'a, Option<T>>
 }
 impl<'a, T> ChunkReadGuard<'a, T> {
-    pub fn from_rwlock_read(inner_lock: RwLockReadGuard<'a, Option<T>>) -> Self {
+    pub fn from_rwlock(inner_lock: RwLockReadGuard<'a, Option<T>>) -> Self {
         Self { inner_lock }
+    }
+
+    pub fn deref_option(&self) -> &Option<T> {
+        self.inner_lock.deref()
     }
 }
 impl<'a, T> Deref for ChunkReadGuard<'a, T> {

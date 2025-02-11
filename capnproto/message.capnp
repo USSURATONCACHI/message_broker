@@ -26,10 +26,13 @@ interface MessageService {
     deleteMessage @1 (messageId :Uuid)  -> (result :Result(None, Error));
 
     getMessagesSync @2 (topicId :Uuid) -> (messages :Result(List(Message), Error));
+
+    subscribe @3 (topicId :Uuid, receiver :MessageReceiver) -> (messages :Result(None, Error));
+    unsubscribe @4 (topicId :Uuid, receiver :MessageReceiver) -> (messages :Result(None, Error));
 }
 
-interface MessageStream {
-    write @0 (message :Message) -> stream;
+interface MessageReceiver {
+    receive @0 (message :Message, topic :Uuid) -> stream;
 }
 
 # # Subscription Management
