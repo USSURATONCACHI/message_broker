@@ -26,7 +26,6 @@ unsafe impl<T> Send for Chunk<T> {}
 
 impl<T> Chunk<T> {
     pub fn drop_all_links(&mut self) {
-        println!("Dropping a chunk of {} capacity", self.data.len());
         let next = unsafe { self.next.load(Ordering::Relaxed).as_mut() };
         let prev = unsafe { self.prev.load(Ordering::Relaxed).as_mut() };
 
@@ -103,7 +102,6 @@ impl<T> Chunk<T> {
 
 impl<T> Chunk<T> {
     pub fn new(prev: Option<&Chunk<T>>, cap: usize) -> Self {
-        println!("Creating a chunk of {cap} capacity");
         assert!(cap > 0);
 
         Self {

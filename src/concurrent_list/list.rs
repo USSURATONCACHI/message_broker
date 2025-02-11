@@ -45,7 +45,6 @@ impl<T> ConcurrentList<T> {
 
 impl<T> Drop for ConcurrentList<T> {
     fn drop(&mut self) {
-        println!("Concurrent list dropped");
         unsafe {
             Box::from_raw(self.ownership_chunk).drop_all_links();
         }

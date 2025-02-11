@@ -1,7 +1,9 @@
-use std::sync::atomic::Ordering;
+use std::ops::Deref;
+use std::{fs::File, sync::atomic::Ordering};
 use std::sync::Arc;
 
 use broker::concurrent_list::{ChunkRef, ConcurrentList, APPEND_LOCKS, APPEND_MISSES, READ_LOCKS, TOTAL_APPENDS, TOTAL_ELEMENTS_WRITTEN, TOTAL_READS};
+use capnp::io::Write;
 
 fn print_array(reader_id: usize, array: ChunkRef<String>) -> std::io::Result<()> {
     let mut total_read = 0usize;
@@ -15,7 +17,7 @@ fn print_array(reader_id: usize, array: ChunkRef<String>) -> std::io::Result<()>
 }
 
 fn push_to_array(writer_id: usize, mut array: ChunkRef<String>) {
-    for i in 0..100 {
+    for i in 0..1000 {
         array.push(format!("Phrase {} - {}", writer_id, i));
         TOTAL_ELEMENTS_WRITTEN.fetch_add(1, Ordering::Relaxed);
         // std::thread::sleep(Duration::from_millis(4));
@@ -28,17 +30,17 @@ fn main() {
     let mut all_threads = Vec::new();
 
     // Create array
-    let array = Arc::new(ConcurrentList::<String>::new(256));
+    let array = Arc::new(ConcurrentList::<String>::new(64));
     
     // Add N writers
-    for i in 0..10 {
+    for i in 0..1000 {
         let array = array.reference();
         let t = std::thread::spawn(move || push_to_array(i, array));
         all_threads.push(t);
     }
 
     // Add N readers
-    for i in 0..10 {
+    for i in 0..1000 {
         let array = array.reference();
         let t = std::thread::spawn(move || print_array(i, array).unwrap());
         all_threads.push(t);
