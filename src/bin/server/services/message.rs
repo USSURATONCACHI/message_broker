@@ -52,6 +52,7 @@ impl message_service::Server for MessageService {
         }
 
         // Check that topic exists
+        println!("Checking out topic uuid: {topic_uuid}");
         if self.topic_store.get().get(topic_uuid).is_none() {
             results.get().init_message().init_err().set_topic_doesnt_exist(());
             return Promise::ok(());
