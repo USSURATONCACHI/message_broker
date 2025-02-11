@@ -1,31 +1,21 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
-
-use broker::concurrent_list::Chunk;
-use broker::util::stream_to_rpc_network;
-use broker::util::Handle;
-use broker::util::SendFuture;
-use broker::util::StoreRegistry;
-use capnp_rpc::RpcSystem;
-use datatypes::Message;
-use datatypes::Topic;
-use services::AuthService;
-use services::EchoService;
-use services::MessageService;
-use services::RootService;
-use services::TopicService;
-use stores::CrudStore;
-use stores::LoginStore;
-use tokio::sync::Notify;
-use tokio::net::TcpStream;
-use tokio::net::TcpListener;
-
-use broker::main_capnp::root_service;
-
 mod services;
 mod stores;
 mod datatypes;
 mod fillers;
+
+use std::net::SocketAddr;
+use std::sync::Arc;
+use capnp_rpc::RpcSystem;
+use tokio::net::{TcpStream, TcpListener};
+use tokio::sync::Notify;
+
+use broker::concurrent_list::Chunk;
+use broker::util::{stream_to_rpc_network, Handle, SendFuture, StoreRegistry};
+use broker::main_capnp::root_service;
+
+use services::{AuthService, EchoService, MessageService, RootService, TopicService};
+use datatypes::{Topic, Message};
+use stores::{CrudStore, LoginStore};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
