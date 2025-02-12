@@ -7,8 +7,8 @@ pub struct ChunkRef<T: 'static> {
     pub chunk: *const Chunk<T>, // Quite unsafe, be careful
     _ownership_insurance: Arc<ConcurrentListInner<T>>,
 
-    index: usize,
-    global_index: usize,
+    pub index: usize,
+    pub global_index: usize,
 
     item_owed: bool,
 }
@@ -31,7 +31,7 @@ impl<T: 'static> ChunkRef<T> {
             }
         }
 
-        if index != 0 && index >= chunk.node_len() {
+        if index != 0 && index >= chunk.node_total_added() {
             return None;
         }
 
@@ -49,6 +49,7 @@ impl<T: 'static> ChunkRef<T> {
     }
     pub unsafe fn set_chunk(&mut self, chunk: &Chunk<T>) {
         self.chunk = chunk;
+        self.global_index = chunk.node_start_index() + self.index;
     }
 
     pub fn get(&self) -> Option<RwLockReadGuard<'static, Option<T>>> {
@@ -74,7 +75,7 @@ impl<T: 'static> ChunkRef<T> {
                     Ok(())
                 }
             }
-        } else if (self.index + 1) < self.chunk().node_len() {
+        } else if (self.index + 1) < self.chunk().node_total_added() {
             // Increment index
             self.index += 1;
             self.global_index += 1;
@@ -142,6 +143,10 @@ impl<T: 'static> ChunkRef<T> {
     }
     pub fn go_to_front_node(&mut self) {
         while let Ok(()) = self.go_next_node() {
+            if self.chunk().node_total_added() == 0 {
+                let _ = self.go_prev_node();
+            }
+
             continue
         }
     }
@@ -163,14 +168,16 @@ impl<T: 'static> ChunkRef<T> {
 
     pub fn drain_forward(&mut self) {
         self.go_to_front_node();
-        let node_len = self.chunk().node_len();
+        let node_len = self.chunk().node_total_added();
 
         self.index = node_len;
+        self.global_index = self.chunk().node_start_index() + self.index;
         self.item_owed = true;
     }
     pub fn drain_backwards(&mut self) {
         self.go_to_back_node();
         self.index = 0;
+        self.global_index = self.chunk().node_start_index() + self.index;
         self.item_owed = true;
     }
 
@@ -192,12 +199,18 @@ impl<T: 'static> Iterator for ChunkRef<T> {
         if self.go_next().is_err() {
             return None;
         }
+        self.item_owed = false;
         self.get()
     }
 }
 
 impl<T: 'static> DoubleEndedIterator for ChunkRef<T> {
     fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index >= self.chunk().node_total_added() {
+            self.item_owed = false;
+            self.index = self.chunk().node_total_added();
+        }
+
         if self.item_owed {
             let result = self.get();
             self.item_owed = result.is_none();
@@ -207,6 +220,7 @@ impl<T: 'static> DoubleEndedIterator for ChunkRef<T> {
         if self.go_prev().is_err() {
             return None;
         }
+        self.item_owed = false;
         self.get()
     }
 }

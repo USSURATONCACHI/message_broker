@@ -10,13 +10,41 @@ unsafe impl<T> Send for ConcurrentListInner<T> {}
 
 impl<T> Default for ConcurrentListInner<T> {
     fn default() -> Self {
-        Self::new(256) // just an ok capacity both in efficeny and performance
+        Self::new(super::list::DEFAULT_CHUNK_SIZE) // just an ok capacity both in efficeny and performance
     }
 }
 
 impl<T> ConcurrentListInner<T> {
-    pub fn new(cap: usize) -> Self {
-        let b = Box::<Chunk<T>>::new(Chunk::new(None, cap));
+    pub fn new(chunk_cap: usize) -> Self {
+        Self::with_capacity(chunk_cap, 1)
+    }
+
+    pub fn with_capacity(chunk_cap: usize, chunks_count: usize) -> Self {
+        assert!(chunks_count > 0);
+
+        let b = unsafe {
+            Box::<Chunk<T>>::new(Chunk::new(None, chunk_cap))
+        };
+
+        // Create all the chunks
+        let mut last_chunk = b.as_ref();
+        for _ in 1..chunks_count {
+            unsafe {
+                let new_box = Box::<Chunk<T>>::new(Chunk::new(Some(last_chunk), chunk_cap));
+                last_chunk = Box::into_raw(new_box).as_ref().unwrap();
+            }
+        }
+
+        // Update pointers
+        let mut last_chunk = b.as_ref();
+        loop {
+            unsafe { last_chunk.update_neighbour_ptrs() };
+            if let Some(next) = unsafe { last_chunk.next_node() } {
+                last_chunk = next;
+                continue;
+            }
+            break;
+        }
 
         let raw = Box::into_raw(b);
 

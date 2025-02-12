@@ -1,4 +1,4 @@
-use std::{ops::{DerefMut}, ptr::null_mut, sync::{atomic::{AtomicPtr, AtomicUsize, Ordering}, RwLock, RwLockReadGuard, RwLockWriteGuard}};
+use std::{ops::DerefMut, ptr::null_mut, sync::{atomic::{AtomicPtr, AtomicUsize, Ordering}, RwLock, RwLockReadGuard, RwLockWriteGuard}};
 
 pub static TOTAL_READS: AtomicUsize = AtomicUsize::new(0);
 pub static READ_LOCKS: AtomicUsize = AtomicUsize::new(0);
@@ -41,7 +41,7 @@ impl<T> Chunk<T> {
 }
 
 impl<T> Chunk<T> {
-    pub fn node_len(&self) -> usize {
+    pub fn node_total_added(&self) -> usize {
         self.length.load(Ordering::Relaxed)
     }
     pub fn node_capacity(&self) -> usize {
@@ -50,6 +50,12 @@ impl<T> Chunk<T> {
     pub fn node_start_index(&self) -> usize {
         self.start_index
     }
+    pub fn node_len(&self) -> usize {
+        self.data.iter()
+            .take(self.node_total_added())
+            .filter(|lock| lock.read().unwrap().is_some())
+            .count()
+    } 
 
     pub unsafe fn front_elems_count(&self) -> usize {
         match self.next_node() {
@@ -97,7 +103,7 @@ impl<T> Chunk<T> {
 }
 
 impl<T> Chunk<T> {
-    pub fn new(prev: Option<&Chunk<T>>, cap: usize) -> Self {
+    pub unsafe fn new(prev: Option<&Chunk<T>>, cap: usize) -> Self {
         assert!(cap > 0);
 
         Self {
@@ -111,14 +117,27 @@ impl<T> Chunk<T> {
 
             prev: match prev {
                 None => AtomicPtr::new(std::ptr::null::<Chunk<T>>() as *mut _),
-                Some(prev) => AtomicPtr::new(prev as *const _  as *mut _)
+                Some(prev) => {
+                    AtomicPtr::new(prev as *const _  as *mut _)
+                }
             },
             next: AtomicPtr::new(std::ptr::null::<Chunk<T>>() as *mut _),
         }
     }
 
+    pub unsafe fn update_neighbour_ptrs(&self) {
+        let self_ptr = self as *const _ as *mut _;
+
+        if let Some(next) = self.next_node() {
+            next.prev.store(self_ptr, Ordering::Relaxed);
+        }
+        if let Some(prev) = self.prev_node() {
+            prev.next.store(self_ptr, Ordering::Relaxed);
+        }
+    }
+
     pub fn at<'a>(&'a self, rel_index: usize) -> Option<RwLockReadGuard<'a, Option<T>>> {
-        if rel_index >= self.node_len() {
+        if rel_index >= self.node_total_added() {
             return None;
         }
 
@@ -146,7 +165,7 @@ impl<T> Chunk<T> {
     }
 
     pub fn at_mut<'a>(&'a self, rel_index: usize) -> Option<RwLockWriteGuard<'a, Option<T>>> {
-        if rel_index >= self.node_len() {
+        if rel_index >= self.node_total_added() {
             return None;
         }
 
@@ -179,7 +198,7 @@ impl<T> Chunk<T> {
 
         // Allocate an index
         loop {
-            let len = current_node.node_len();
+            let len = current_node.node_total_added();
 
             // Allocate a node if it does not exist
             if len >= current_node.node_capacity() {
@@ -188,6 +207,8 @@ impl<T> Chunk<T> {
                 if next_ptr.is_null() {
                     // Allocate next node
                     let new_node: Box<Self> = Box::new(Self::new(Some(current_node), current_node.node_capacity()));
+                    new_node.prev.store(self as *const _ as *mut _, Ordering::Relaxed);
+
                     let new_ptr = Box::into_raw(new_node);
 
                     // Try to atomically swap

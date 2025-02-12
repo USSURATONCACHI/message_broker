@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::{Arc, RwLockReadGuard, Weak};
 use std::time::Duration;
 
-use broker::concurrent_list::{ChunkRef, ConcurrentList};
+use broker::concurrent_list::ConcurrentListRef;
 use broker::message_capnp::reverse_message_iterator::{NextParams, NextResults, StopParams, StopResults};
 use broker::message_capnp::{message_receiver, reverse_message_iterator};
 use broker::util::{Handle, ReverseIterator, StoreRegistry};
@@ -25,15 +25,15 @@ pub struct MessageService {
     login_store: Handle<LoginStore>,
     topic_store: Handle<CrudStore<Topic>>,
 
-    messages_reader: ChunkRef<Message>,
-    messages_writer: ChunkRef<Message>,
+    messages_reader: ConcurrentListRef<Message>,
+    messages_writer: ConcurrentListRef<Message>,
     subscribers: Vec<Arc<(Uuid, message_receiver::Client)>>,
     message_iterators: Vec<reverse_message_iterator::Client>,
 }
 
 impl MessageService {
     pub fn new(peer: SocketAddr, stores: &StoreRegistry) -> Self {
-        let messages_handle = stores.get::<Arc<ConcurrentList<Message>>>().reference();
+        let messages_handle = stores.get::<ConcurrentListRef<Message>>().clone();
 
         Self {
             peer,
@@ -48,23 +48,6 @@ impl MessageService {
         }
     }
 }
-
-// async fn listen_to_messages(messages: Weak<RwLock<Chunk<Message>>>, listeners: Weak<RwLock<Receivers>>) {
-//     loop {
-//         let messages = match messages.upgrade() {
-//             Some(m) => m,
-//             None => break,
-//         };
-//         let listeners = match listeners.upgrade() {
-//             Some(l) => l,
-//             None => break,
-//         };
-
-//         for message in messages.read().unwrap().
-
-
-//     }
-// }
 
 impl message_service::Server for MessageService {
     fn post_message(&mut self, params: PostMessageParams, mut results: PostMessageResults) -> Promise<(), Error> { 
@@ -149,7 +132,6 @@ impl message_service::Server for MessageService {
     }
     
     fn subscribe(&mut self, params: SubscribeParams, mut results: SubscribeResults) -> Promise<(), Error> {
-        println!("Subscribing");
         let _username = pry!(self.login_store.get().check_login(&self.peer));
         let reader = pry!(params.get());
 
@@ -184,7 +166,6 @@ impl message_service::Server for MessageService {
             pry!(results.get().init_messages().set_ok(message_iterator));
         }
 
-        println!("Subscribed");
         Promise::ok(())
     }
     
@@ -207,15 +188,9 @@ impl message_service::Server for MessageService {
 
         Promise::ok(())
     }
-
-    // fn post_message(&mut self, params: PostMessageParams, mut results: PostMessageResults) -> Promise<(), Error> {}
-    // fn delete_message(&mut self, params: DeleteMessageParams, mut results: DeleteMessageResults) -> Promise<(), Error> {}
-    // fn get_messages_sync(&mut self, params: GetMessagesSyncParams, mut results: GetMessagesSyncResults) -> Promise<(), Error> {}
-    // fn subscribe(&mut self, params: SubscribeParams, mut results: SubscribeResults) -> Promise<(), Error> {}
-    // fn unsubscribe(&mut self, params: UnsubscribeParams, mut results: UnsubscribeResults) -> Promise<(), Error> {}
 }
 
-async fn spin_on_messages(mut messages_reader: ChunkRef<Message>, uuid_receiver: Weak<(Uuid, message_receiver::Client)>) {
+async fn spin_on_messages(mut messages_reader: ConcurrentListRef<Message>, uuid_receiver: Weak<(Uuid, message_receiver::Client)>) {
     'main: loop {
         let (topic_uuid, receiver) = match uuid_receiver.upgrade() {
             Some(arc) => (arc.0, (&arc.1).clone()),
@@ -246,12 +221,12 @@ async fn spin_on_messages(mut messages_reader: ChunkRef<Message>, uuid_receiver:
 }
 
 struct ReverseMessageIterator {
-    messages_reader: Option<ChunkRef<Message>>,
+    messages_reader: Option<ConcurrentListRef<Message>>,
     topic_uuid: Uuid,
 }
 
 impl ReverseMessageIterator {
-    pub fn new(handle: ChunkRef<Message>, topic_uuid: Uuid) -> Self {
+    pub fn new(handle: ConcurrentListRef<Message>, topic_uuid: Uuid) -> Self {
         Self {
             messages_reader: Some(handle),
             topic_uuid
@@ -267,8 +242,8 @@ impl reverse_message_iterator::Server for ReverseMessageIterator {
             return Promise::err(Error::failed("Iterator was stopped".into()))
         }
         let reader = self.messages_reader.as_mut().unwrap();
-        let reader = ReverseIterator::from(reader);
 
+        let reader = ReverseIterator::from(reader);
         let messages = reader
             .filter_map(|guard| guard.as_ref().cloned())
             .filter(|message| message.topic_uuid == self.topic_uuid)

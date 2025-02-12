@@ -1,9 +1,9 @@
 use std::{ops::Deref, sync::atomic::Ordering};
 use std::sync::Arc;
 
-use broker::concurrent_list::{ChunkRef, ConcurrentList, APPEND_LOCKS, APPEND_MISSES, READ_LOCKS, TOTAL_APPENDS, TOTAL_ELEMENTS_WRITTEN, TOTAL_READS};
+use broker::concurrent_list::{ConcurrentListRef, ConcurrentList, APPEND_LOCKS, APPEND_MISSES, READ_LOCKS, TOTAL_APPENDS, TOTAL_ELEMENTS_WRITTEN, TOTAL_READS};
 
-async fn print_array(reader_id: usize, array: ChunkRef<String>) {
+async fn print_array(reader_id: usize, array: ConcurrentListRef<String>) {
     let mut total_read = 0usize;
     for elem in array {
         let elem = match elem.deref() {
@@ -17,7 +17,7 @@ async fn print_array(reader_id: usize, array: ChunkRef<String>) {
     println!("Reader {reader_id}, {total_read} elements was read");
 }
 
-async fn push_to_array(writer_id: usize, mut array: ChunkRef<String>) {
+async fn push_to_array(writer_id: usize, mut array: ConcurrentListRef<String>) {
     for i in 0..1000 {
         array.push(format!("Phrase {} - {}", writer_id, i));
         TOTAL_ELEMENTS_WRITTEN.fetch_add(1, Ordering::Relaxed);

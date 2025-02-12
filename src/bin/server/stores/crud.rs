@@ -43,26 +43,23 @@ impl<T: Clone> CrudStore<T> {
     }
 }
 
-// Manual implementation of Serialize for CrudStore<T>
 impl<T: Clone + Serialize> Serialize for CrudStore<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        // Serialize as a struct with one field: "entries"
         let mut state = serializer.serialize_struct("CrudStore", 1)?;
         state.serialize_field("entries", &self.entries)?;
-        state.end()
+        let result = state.end();
+        result 
     }
 }
 
-// Manual implementation of Deserialize for CrudStore<T>
 impl<'de, T: Clone + Deserialize<'de>> Deserialize<'de> for CrudStore<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        // Define a helper struct that mirrors the serialized form.
         #[derive(Deserialize)]
         struct CrudStoreData<T> {
             entries: HashMap<Uuid, T>,

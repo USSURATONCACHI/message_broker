@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 actix = "0.13.5"
+bincode = "1.3.3"
 capnp = "0.20.3"
 capnp-rpc = "0.20.3"
 chrono = { version = "0.4.39", features = ["serde"] }

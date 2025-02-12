@@ -33,7 +33,7 @@ interface MessageService {
 }
 
 interface ReverseMessageIterator {
-    next @0 (count :UInt64) -> (messages :List(Message));
+    next @0 (count :UInt32) -> (messages :List(Message));
     stop @1 () -> ();
 }
 
