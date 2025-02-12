@@ -1,8 +1,4 @@
-use std::{ops::Deref, ptr::null_mut, sync::{atomic::{AtomicPtr, AtomicUsize, Ordering}, RwLock}};
-
-use super::{ChunkReadGuard, ChunkWriteGuard};
-
-
+use std::{ops::{DerefMut}, ptr::null_mut, sync::{atomic::{AtomicPtr, AtomicUsize, Ordering}, RwLock, RwLockReadGuard, RwLockWriteGuard}};
 
 pub static TOTAL_READS: AtomicUsize = AtomicUsize::new(0);
 pub static READ_LOCKS: AtomicUsize = AtomicUsize::new(0);
@@ -121,12 +117,11 @@ impl<T> Chunk<T> {
         }
     }
 
-    pub fn at<'a>(&'a self, rel_index: usize) -> Option<ChunkReadGuard<'a, T>> {
+    pub fn at<'a>(&'a self, rel_index: usize) -> Option<RwLockReadGuard<'a, Option<T>>> {
         if rel_index >= self.node_len() {
             return None;
         }
 
-        // If element was deleted (overwritten with None) - return None
         let lock;
 
         loop {
@@ -147,15 +142,10 @@ impl<T> Chunk<T> {
         }
         TOTAL_READS.fetch_add(1, Ordering::Relaxed);
 
-        if lock.deref().is_none() {
-            None
-        } else {
-            // Finally
-            Some(ChunkReadGuard::from_rwlock(lock))
-        }
+        Some(lock)
     }
 
-    pub fn at_mut<'a>(&'a self, rel_index: usize) -> Option<ChunkWriteGuard<'a, T>> {
+    pub fn at_mut<'a>(&'a self, rel_index: usize) -> Option<RwLockWriteGuard<'a, Option<T>>> {
         if rel_index >= self.node_len() {
             return None;
         }
@@ -180,13 +170,7 @@ impl<T> Chunk<T> {
             }
         }
         TOTAL_READS.fetch_add(1, Ordering::Relaxed);
-
-        if lock.deref().is_none() {
-            None
-        } else {
-            // Finally
-            Some(ChunkWriteGuard::from_rwlock(lock))
-        }
+        Some(lock)
     }
 
     pub unsafe fn push(&self, val: T) -> usize {
@@ -268,7 +252,7 @@ impl<T> Chunk<T> {
             None => None,
             Some(mut guard) => {
                 let mut result = None;
-                std::mem::swap(guard.deref_option_mut(), &mut result);
+                std::mem::swap(RwLockWriteGuard::deref_mut(&mut guard), &mut result);
                 result
             }
         }

@@ -9,6 +9,7 @@ pub fn fill_capnp_message(mut builder: message::Builder<'_>, message: &Message) 
     builder.set_author_name(&message.author_name);
     builder.set_content(&message.content);
     fill_capnp_timestamp(builder.reborrow().init_timestamp(), message.timestamp);
+    fill_capnp_uuid(builder.reborrow().init_topic_uuid(), message.topic_uuid);
     fill_capnp_uuid(builder.init_uuid(), message.uuid);
 }
 

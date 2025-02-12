@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLockReadGuard, RwLockWriteGuard};
 
-use super::{chunk::Chunk, ChunkReadGuard, ChunkWriteGuard, ConcurrentList};
+use super::{chunk::Chunk, inner::ConcurrentListInner};
 
 #[derive(Clone)]
 pub struct ChunkRef<T: 'static> {
-    chunk: *const Chunk<T>, // Quite unsafe, be careful
-    _ownership_insurance: Arc<ConcurrentList<T>>,
+    pub chunk: *const Chunk<T>, // Quite unsafe, be careful
+    _ownership_insurance: Arc<ConcurrentListInner<T>>,
 
     index: usize,
     global_index: usize,
@@ -18,7 +18,7 @@ unsafe impl<T> Send for ChunkRef<T> {}
 pub type EndOfCollection = ();
 
 impl<T: 'static> ChunkRef<T> {
-    pub unsafe fn new_at(ownership_insurance: Arc<ConcurrentList<T>>, mut chunk: &Chunk<T>, mut index: usize) -> Option<Self> {
+    pub unsafe fn new_at(ownership_insurance: Arc<ConcurrentListInner<T>>, mut chunk: &Chunk<T>, mut index: usize) -> Option<Self> {
         let global_index = index + chunk.node_start_index();
 
         while index >= chunk.node_capacity() {
@@ -51,10 +51,10 @@ impl<T: 'static> ChunkRef<T> {
         self.chunk = chunk;
     }
 
-    pub fn get(&self) -> Option<ChunkReadGuard<'static, T>> {
+    pub fn get(&self) -> Option<RwLockReadGuard<'static, Option<T>>> {
         return self.chunk().at(self.index);
     }
-    pub fn get_mut(&self) -> Option<ChunkWriteGuard<'static, T>> {
+    pub fn get_mut(&self) -> Option<RwLockWriteGuard<'static, Option<T>>> {
         return self.chunk().at_mut(self.index);
     }
     pub fn index(&self) -> usize {
@@ -160,10 +160,27 @@ impl<T: 'static> ChunkRef<T> {
 
         Ok(())
     }
+
+    pub fn drain_forward(&mut self) {
+        self.go_to_front_node();
+        let node_len = self.chunk().node_len();
+
+        self.index = node_len;
+        self.item_owed = true;
+    }
+    pub fn drain_backwards(&mut self) {
+        self.go_to_back_node();
+        self.index = 0;
+        self.item_owed = true;
+    }
+
+    pub fn return_current_elem_on_iteration(&mut self, do_return: bool) {
+        self.item_owed = do_return;
+    }
 }
 
 impl<T: 'static> Iterator for ChunkRef<T> {
-    type Item = ChunkReadGuard<'static, T>;
+    type Item = RwLockReadGuard<'static, Option<T>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.item_owed {

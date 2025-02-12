@@ -1,11 +1,12 @@
 use std::net::SocketAddr;
 use std::ops::Deref;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, RwLockReadGuard, Weak};
 use std::time::Duration;
 
-use broker::concurrent_list::{ChunkReadGuard, ChunkRef, ConcurrentList};
-use broker::message_capnp::message_receiver;
-use broker::util::{Handle, StoreRegistry};
+use broker::concurrent_list::{ChunkRef, ConcurrentList};
+use broker::message_capnp::reverse_message_iterator::{NextParams, NextResults, StopParams, StopResults};
+use broker::message_capnp::{message_receiver, reverse_message_iterator};
+use broker::util::{Handle, ReverseIterator, StoreRegistry};
 use broker::message_capnp::message_service::{self, DeleteMessageParams, DeleteMessageResults, GetMessagesSyncParams, GetMessagesSyncResults, PostMessageParams, SubscribeParams, SubscribeResults, UnsubscribeParams, UnsubscribeResults};
 use broker::message_capnp::message_service::PostMessageResults;
 use capnp::{capability::Promise, Error};
@@ -14,7 +15,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::datatypes::Message;
-use crate::fillers::{fill_capnp_message, fill_capnp_uuid};
+use crate::fillers::fill_capnp_message;
 use crate::{datatypes::Topic, stores::{CrudStore, LoginStore}};
 
 
@@ -27,6 +28,7 @@ pub struct MessageService {
     messages_reader: ChunkRef<Message>,
     messages_writer: ChunkRef<Message>,
     subscribers: Vec<Arc<(Uuid, message_receiver::Client)>>,
+    message_iterators: Vec<reverse_message_iterator::Client>,
 }
 
 impl MessageService {
@@ -42,6 +44,7 @@ impl MessageService {
             messages_writer: messages_handle,
 
             subscribers: Default::default(),
+            message_iterators: Default::default(),
         }
     }
 }
@@ -81,7 +84,7 @@ impl message_service::Server for MessageService {
 
         // Check that topic exists
         if self.topic_store.get().get(topic_uuid).is_none() {
-            results.get().init_message().init_err().set_topic_doesnt_exist(());
+            results.get().init_message().init_err().set_entity_does_not_exist(());
             return Promise::ok(());
         }
 
@@ -117,29 +120,36 @@ impl message_service::Server for MessageService {
         
         // Check that topic exists
         if self.topic_store.get().get(topic_uuid).is_none() {
-            results.get().init_messages().init_err().set_topic_doesnt_exist(());
+            results.get().init_messages().init_err().set_entity_does_not_exist(());
             return Promise::ok(());
         }
 
         // We need to know amount of messages beforehand
-        let filter_fn=  |msg: &ChunkReadGuard<'_, Message>| msg.topic_uuid == topic_uuid;
+        let filter_fn = |msg: &RwLockReadGuard<'_, Option<Message>>| 
+            msg.is_some() && 
+            msg.as_ref().unwrap().topic_uuid == topic_uuid;
 
-        self.messages_reader.go_to_back_node();
+        self.messages_reader.drain_backwards();
         let messages_count = self.messages_reader.clone().filter(filter_fn).count();
 
         // Return all the messages
         let mut builder = results.get().init_messages().initn_ok(messages_count as u32);
 
-        for (index, message) in self.messages_reader.clone().filter(filter_fn).enumerate()
+        let messages = self.messages_reader.clone()
+            .filter(filter_fn)
+            .enumerate();
+        for (index, message) in messages
         {
+            let message = message.as_ref().unwrap();
             let capnp_message = builder.reborrow().get(index as u32);
-            fill_capnp_message(capnp_message, message.deref());
+            fill_capnp_message(capnp_message, message);
         } 
         
         Promise::ok(())
     }
     
     fn subscribe(&mut self, params: SubscribeParams, mut results: SubscribeResults) -> Promise<(), Error> {
+        println!("Subscribing");
         let _username = pry!(self.login_store.get().check_login(&self.peer));
         let reader = pry!(params.get());
 
@@ -148,58 +158,33 @@ impl message_service::Server for MessageService {
 
         // Check that topic exists
         if self.topic_store.get().get(topic_uuid).is_none() {
-            results.get().init_messages().init_err().set_topic_doesnt_exist(());
+            results.get().init_messages().init_err().set_entity_does_not_exist(());
             return Promise::ok(());
         }
 
-        let receiver = pry!(reader.get_receiver());
+        let mut reader_handle = self.messages_reader.clone();
+        reader_handle.drain_forward();
+        // Create an Arc-Weak pair of message receiver
+        {
+            let receiver_arc=  Arc::new((topic_uuid, pry!(reader.get_receiver())));
+            let receiver_weak = Arc::downgrade(&receiver_arc);
+            
+            self.subscribers.push(receiver_arc); // `self` owns an Arc, task owns a Weak. This way, task will stop itself, `self` is dropped.
 
-        async fn spin_on_messages(mut messages_reader: ChunkRef<Message>, uuid_receiver: Weak<(Uuid, message_receiver::Client)>) {
-            messages_reader.go_to_front_node();
-
-            loop {
-                if let None = messages_reader.next() {
-                    break;
-                }
-            } 
-
-            'main: loop {
-                let (topic_uuid, receiver) = match uuid_receiver.upgrade() {
-                    Some(arc) => (arc.0, (&arc.1).clone()),
-                    None => {
-                        break
-                    },
-                };
-
-                while let Some(next) = messages_reader.next() {
-                    let deref = next.deref_option();
-                    if let Some(message) = deref {
-                        if message.topic_uuid != topic_uuid {
-                            continue;
-                        }
-
-                        let mut request = receiver.receive_request();
-                        let mut builder = request.get();
-                        fill_capnp_uuid(builder.reborrow().init_topic(), message.topic_uuid);
-                        fill_capnp_message(builder.reborrow().init_message(), message);
-                        if let Err(err) = request.send().await {
-                            println!("Server send error: {err:?}");
-                            break 'main;
-                        }
-                    }
-                }
-                tokio::time::sleep(Duration::from_millis(16)).await;
-            }
+            tokio::task::spawn_local(spin_on_messages(reader_handle.clone(), receiver_weak));
         }
-        
-        let arc=  Arc::new((topic_uuid, receiver));
-        let weak = Arc::downgrade(&arc);
-        self.subscribers.push(arc);
-        let future = spin_on_messages(self.messages_reader.clone(), weak);
-        tokio::task::spawn_local(future);
 
-        results.get().init_messages().init_ok();
+        // Create a message iterator (for user to request messages history.)
+        {
+            let message_iterator = ReverseMessageIterator::new(reader_handle, topic_uuid);
+            let message_iterator: reverse_message_iterator::Client = capnp_rpc::new_client(message_iterator);
+            self.message_iterators.push(message_iterator.clone()); 
 
+            // Send the iterator to the client 
+            pry!(results.get().init_messages().set_ok(message_iterator));
+        }
+
+        println!("Subscribed");
         Promise::ok(())
     }
     
@@ -220,6 +205,85 @@ impl message_service::Server for MessageService {
             self.subscribers.remove(idx);
         }
 
+        Promise::ok(())
+    }
+
+    // fn post_message(&mut self, params: PostMessageParams, mut results: PostMessageResults) -> Promise<(), Error> {}
+    // fn delete_message(&mut self, params: DeleteMessageParams, mut results: DeleteMessageResults) -> Promise<(), Error> {}
+    // fn get_messages_sync(&mut self, params: GetMessagesSyncParams, mut results: GetMessagesSyncResults) -> Promise<(), Error> {}
+    // fn subscribe(&mut self, params: SubscribeParams, mut results: SubscribeResults) -> Promise<(), Error> {}
+    // fn unsubscribe(&mut self, params: UnsubscribeParams, mut results: UnsubscribeResults) -> Promise<(), Error> {}
+}
+
+async fn spin_on_messages(mut messages_reader: ChunkRef<Message>, uuid_receiver: Weak<(Uuid, message_receiver::Client)>) {
+    'main: loop {
+        let (topic_uuid, receiver) = match uuid_receiver.upgrade() {
+            Some(arc) => (arc.0, (&arc.1).clone()),
+            None => {
+                break
+            },
+        };
+
+        while let Some(next) = messages_reader.next() {
+            let message = match next.deref() {
+                None => continue,
+                Some(x) => x,
+            };
+
+            if message.topic_uuid != topic_uuid {
+                continue;
+            }
+
+            let mut request = receiver.receive_request();
+            fill_capnp_message(request.get().init_message(), message);
+            if let Err(err) = request.send().await {
+                println!("Server send error: {err:?}");
+                break 'main;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(16)).await;
+    }
+}
+
+struct ReverseMessageIterator {
+    messages_reader: Option<ChunkRef<Message>>,
+    topic_uuid: Uuid,
+}
+
+impl ReverseMessageIterator {
+    pub fn new(handle: ChunkRef<Message>, topic_uuid: Uuid) -> Self {
+        Self {
+            messages_reader: Some(handle),
+            topic_uuid
+        }
+    }
+}
+
+impl reverse_message_iterator::Server for ReverseMessageIterator {
+    fn next(&mut self, params: NextParams, mut results: NextResults) -> Promise<(), Error> {
+        let count = pry!(params.get()).get_count();
+
+        if self.messages_reader.is_none() {
+            return Promise::err(Error::failed("Iterator was stopped".into()))
+        }
+        let reader = self.messages_reader.as_mut().unwrap();
+        let reader = ReverseIterator::from(reader);
+
+        let messages = reader
+            .filter_map(|guard| guard.as_ref().cloned())
+            .filter(|message| message.topic_uuid == self.topic_uuid)
+            .take(count as usize)
+            .collect::<Vec<_>>();
+
+        let mut capnp_messages = results.get().init_messages(messages.len() as u32);
+        for (i, message) in messages.into_iter().enumerate() {
+            fill_capnp_message(capnp_messages.reborrow().get(i as u32), &message);
+        }
+
+        Promise::ok(())
+    }
+    fn stop(&mut self, _params: StopParams, _results: StopResults) -> Promise<(), Error> {
+        self.messages_reader = None;
         Promise::ok(())
     }
 }

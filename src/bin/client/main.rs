@@ -19,7 +19,6 @@ use tokio::io;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 use tokio::io::BufReader;
-use tokio::io::AsyncBufReadExt;
 
 use capnp_rpc::RpcSystem;
 use capnp_rpc::rpc_twoparty_capnp;
@@ -47,12 +46,11 @@ pub struct MessageReceiver {
 impl message_receiver::Server for MessageReceiver {
     fn receive(&mut self, params: ReceiveParams) -> Promise<(), capnp::Error> {
         let reader = pry!(params.get());
-        let topic_uuid = pry!(reader.get_topic());
-        let topic_uuid = Uuid::from_u64_pair(topic_uuid.get_upper(), topic_uuid.get_lower());
-
+        
         let message = pry!(reader.get_message());
+        let topic_uuid = read_capnp_uuid(pry!(message.get_topic_uuid()));
         let message = pry!(read_capnp_message(message, topic_uuid));
-
+        
         print_message(&message, &self.topic_name);
         stdout().flush().unwrap();
         Promise::ok(())
@@ -222,7 +220,7 @@ async fn request_existing_messages(message: &message_service::Client, topic_uuid
         util_capnp::result::Which::Err(err) => {
             let err= err?;
             match err.which()? {
-                message_service::error::Which::TopicDoesntExist(()) => 
+                message_service::error::Which::EntityDoesNotExist(()) => 
                     return Err(string_error("Topic does not exist".to_string())),
                 message_service::error::Which::InvalidContent(()) => 
                     return Err(string_error("Invalid content".to_string())),
@@ -370,7 +368,7 @@ async fn do_work(client: message_service::Client, topic_uuid: Uuid) -> Result<()
             util_capnp::result::Which::Err(err) => {
                 let err = err?;
                 match err.which()? {
-                    message_service::error::Which::TopicDoesntExist(()) => return Err(Box::new(string_error("Topic does not exist".to_string()))),
+                    message_service::error::Which::EntityDoesNotExist(()) => return Err(Box::new(string_error("Topic does not exist".to_string()))),
                     message_service::error::Which::InvalidContent(()) => return Err(Box::new(string_error("Invalid content".to_string()))),
                 }
             },

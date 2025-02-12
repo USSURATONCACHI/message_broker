@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering;
+use std::{ops::Deref, sync::atomic::Ordering};
 use std::sync::Arc;
 
 use broker::concurrent_list::{ChunkRef, ConcurrentList, APPEND_LOCKS, APPEND_MISSES, READ_LOCKS, TOTAL_APPENDS, TOTAL_ELEMENTS_WRITTEN, TOTAL_READS};
@@ -6,6 +6,11 @@ use broker::concurrent_list::{ChunkRef, ConcurrentList, APPEND_LOCKS, APPEND_MIS
 async fn print_array(reader_id: usize, array: ChunkRef<String>) {
     let mut total_read = 0usize;
     for elem in array {
+        let elem = match elem.deref() {
+            Some(x) => x,
+            None => continue,
+        };
+        
         assert!(elem.starts_with("Phrase "));
         total_read += 1;
     }
