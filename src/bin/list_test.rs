@@ -1,22 +1,18 @@
-use std::ops::Deref;
-use std::{fs::File, sync::atomic::Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use broker::concurrent_list::{ChunkRef, ConcurrentList, APPEND_LOCKS, APPEND_MISSES, READ_LOCKS, TOTAL_APPENDS, TOTAL_ELEMENTS_WRITTEN, TOTAL_READS};
-use capnp::io::Write;
 
-fn print_array(reader_id: usize, array: ChunkRef<String>) -> std::io::Result<()> {
+async fn print_array(reader_id: usize, array: ChunkRef<String>) {
     let mut total_read = 0usize;
     for elem in array {
         assert!(elem.starts_with("Phrase "));
         total_read += 1;
     }
     println!("Reader {reader_id}, {total_read} elements was read");
-
-    Ok(())
 }
 
-fn push_to_array(writer_id: usize, mut array: ChunkRef<String>) {
+async fn push_to_array(writer_id: usize, mut array: ChunkRef<String>) {
     for i in 0..1000 {
         array.push(format!("Phrase {} - {}", writer_id, i));
         TOTAL_ELEMENTS_WRITTEN.fetch_add(1, Ordering::Relaxed);
@@ -26,7 +22,8 @@ fn push_to_array(writer_id: usize, mut array: ChunkRef<String>) {
 }
 
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let mut all_threads = Vec::new();
 
     // Create array
@@ -35,20 +32,20 @@ fn main() {
     // Add N writers
     for i in 0..1000 {
         let array = array.reference();
-        let t = std::thread::spawn(move || push_to_array(i, array));
+        let t = tokio::spawn(push_to_array(i, array));
         all_threads.push(t);
     }
 
     // Add N readers
     for i in 0..1000 {
         let array = array.reference();
-        let t = std::thread::spawn(move || print_array(i, array).unwrap());
+        let t = tokio::spawn(print_array(i, array));
         all_threads.push(t);
     }
 
     // Wait on threads    
     for t in all_threads {
-        match t.join() {
+        match t.await {
             Ok(_) => {}
             Err(e) => {
                 println!("Thread failed: {:?}", e);

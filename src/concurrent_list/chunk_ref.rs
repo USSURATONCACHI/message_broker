@@ -10,8 +10,7 @@ pub struct ChunkRef<T: 'static> {
     index: usize,
     global_index: usize,
 
-    forward_move_failed: bool,
-    backward_move_failed: bool,
+    item_owed: bool,
 }
 unsafe impl<T> Sync for ChunkRef<T> {}
 unsafe impl<T> Send for ChunkRef<T> {}
@@ -40,8 +39,7 @@ impl<T: 'static> ChunkRef<T> {
             chunk,
             index,
             global_index,
-            forward_move_failed: false,
-            backward_move_failed: false,
+            item_owed: true,
             _ownership_insurance: ownership_insurance,
         })
     }
@@ -168,26 +166,30 @@ impl<T: 'static> Iterator for ChunkRef<T> {
     type Item = ChunkReadGuard<'static, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.forward_move_failed {
-            self.forward_move_failed = false;
-            None
-        } else {
-            let result: Option<ChunkReadGuard<'static, T>> = self.get();
-            self.forward_move_failed = self.go_next().is_err();
-            result
+        if self.item_owed {
+            let result = self.get();
+            self.item_owed = result.is_none();
+            return result;
         }
+
+        if self.go_next().is_err() {
+            return None;
+        }
+        self.get()
     }
 }
 
 impl<T: 'static> DoubleEndedIterator for ChunkRef<T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.backward_move_failed {
-            self.backward_move_failed = false;
-            None
-        } else {
+        if self.item_owed {
             let result = self.get();
-            self.backward_move_failed = self.go_prev().is_err();
-            result
+            self.item_owed = result.is_none();
+            return result;
         }
+        
+        if self.go_prev().is_err() {
+            return None;
+        }
+        self.get()
     }
 }

@@ -1,16 +1,23 @@
+use std::io::stdout;
+use std::io::Write;
 use std::net::ToSocketAddrs;
 use std::net::SocketAddr;
+use std::str::from_utf8_unchecked;
 use broker::auth_capnp::auth_service;
+use broker::message_capnp;
+use broker::message_capnp::message_receiver;
+use broker::message_capnp::message_receiver::ReceiveParams;
 use broker::message_capnp::message_service;
 use broker::topic_capnp::topic;
 use broker::topic_capnp::topic_service;
 use broker::util_capnp;
-use broker::util_capnp::timestamp;
 use capnp::capability::Promise;
 use capnp_rpc::pry;
 use chrono::DateTime;
 use chrono::Utc;
-use futures::FutureExt;
+use tokio::io;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
 use tokio::io::BufReader;
 use tokio::io::AsyncBufReadExt;
 
@@ -18,23 +25,41 @@ use capnp_rpc::RpcSystem;
 use capnp_rpc::rpc_twoparty_capnp;
 use tokio::net::TcpStream;
 
-use broker::util::SendFuture;
 use broker::util::stream_to_rpc_network;
-use broker::echo_capnp::echo;
-use broker::echo_capnp::ping_receiver;
 use broker::main_capnp::root_service;
+use tokio::task::LocalSet;
 use uuid::Uuid;
 
 
-struct PingReceiverImpl;
+pub fn print_message(message: &Message, topic_name: &str) {
+    // let topic_uuid = &message.topic_uuid;
+    let timestamp = &message.timestamp;
+    let author = &message.author_name;
+    let content = &message.content;
 
-impl ping_receiver::Server for PingReceiverImpl {
-    fn ping(&mut self, params: ping_receiver::PingParams, _: ping_receiver::PingResults) -> Promise<(), capnp::Error> {
-        let seq = pry!(params.get()).get_seq();
-        println!("Server sent a ping event: {seq}");
+    print!("\r[{topic_name} | {}] {author} |> {content}\n*> ", timestamp.format("%Y.%m.%d %H:%M:%S"))
+}
+
+pub struct MessageReceiver {
+    pub topic_name: String,
+}
+
+impl message_receiver::Server for MessageReceiver {
+    fn receive(&mut self, params: ReceiveParams) -> Promise<(), capnp::Error> {
+        let reader = pry!(params.get());
+        let topic_uuid = pry!(reader.get_topic());
+        let topic_uuid = Uuid::from_u64_pair(topic_uuid.get_upper(), topic_uuid.get_lower());
+
+        let message = pry!(reader.get_message());
+        let message = pry!(read_capnp_message(message, topic_uuid));
+
+        print_message(&message, &self.topic_name);
+        stdout().flush().unwrap();
         Promise::ok(())
     }
 }
+
+
 
 #[derive(Clone, Debug, Default)]
 pub struct Topic {
@@ -44,31 +69,62 @@ pub struct Topic {
     pub timestamp: DateTime<Utc>,
 }
 
-pub fn read_uuid(reader: util_capnp::uuid::Reader<'_>) -> Uuid {
+#[derive(Clone, Debug, Default)]
+pub struct Message {
+    pub uuid: Uuid,
+    pub topic_uuid: Uuid,
+    pub author_name: String,
+    pub content: String,
+    pub timestamp: DateTime<Utc>,
+}
+
+
+
+pub fn read_capnp_uuid(reader: util_capnp::uuid::Reader<'_>) -> Uuid {
     Uuid::from_u64_pair(
         reader.get_upper(), 
         reader.get_lower()
     )
 }
 
-pub fn read_timestamp(reader: util_capnp::timestamp::Reader<'_>) -> DateTime<Utc> {
+pub fn read_capnp_message(reader: message_capnp::message::Reader<'_>, topic_uuid: Uuid) -> Result<Message, capnp::Error> {
+
+    Ok(Message {
+        uuid: read_capnp_uuid(reader.reborrow().get_uuid()?),
+        topic_uuid,
+        author_name: reader.reborrow().get_author_name()?.to_string()?,
+        content: reader.reborrow().get_content()?.to_string()?,
+        timestamp: read_capnp_timestamp(reader.reborrow().get_timestamp()?),
+    })
+}
+
+pub fn read_capnp_timestamp(reader: util_capnp::timestamp::Reader<'_>) -> DateTime<Utc> {
     DateTime::from_timestamp(reader.get_seconds(), reader.get_nanos()).unwrap()
 }
 
 pub fn read_capnp_topic(reader: topic::Reader<'_>) -> Result<Topic, capnp::Error> {
     Ok(Topic {
-        uuid: read_uuid(reader.get_uuid()?),
+        uuid: read_capnp_uuid(reader.get_uuid()?),
         name: reader.get_name()?.to_string()?,
         creator: reader.get_owner_username()?.to_string()?,
-        timestamp: read_timestamp(reader.get_created_at()?),
+        timestamp: read_capnp_timestamp(reader.get_created_at()?),
     })
 }
 
+
+
+
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = parse_cli_addr()?;
+    let (addr, username) = parse_cli_args()?;
 
     // Connection
+    LocalSet::new().run_until(start_client(addr, username)).await?;
+    Ok(())
+}
+
+async fn start_client(addr: SocketAddr, username: String) -> Result<(), Box<dyn std::error::Error>> {
     println!("Connecting to server {addr}");
     let stream = TcpStream::connect(addr).await?;
     let _ = stream.set_nodelay(true);
@@ -78,19 +134,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rpc_system = RpcSystem::new(Box::new(network), None);
 
     let root: root_service::Client = rpc_system.bootstrap(rpc_twoparty_capnp::Side::Client);
-    tokio::spawn(SendFuture::from(rpc_system));
+    let rpc_handle = tokio::task::spawn_local(rpc_system);
 
     // Auth
     let auth = get_auth_client(&root).await?;
     let mut login_request = auth.login_request();
-    login_request.get().set_username("ussur");
+    login_request.get().set_username(username);
     let _ = login_request.send().promise.await?;
 
     // Get all topics
     let topic = get_topic_client(&root).await?;
     let message = get_message_client(&root).await?;
     let all_topics = get_all_topics(&topic).await?;
-    // println!("All topics: {all_topics:?}");
 
     // Create topic if it does not exist
     let wanted_topic_name = "general";
@@ -107,24 +162,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let all_topics = get_all_topics(&topic).await?;
     println!("All topics: {all_topics:?}");
 
+    // Getting wanted topic
     let wanted_topic = all_topics.iter()
         .filter(|topic| topic.name == wanted_topic_name)
         .next()
         .unwrap()
         .clone();
-
-    println!("Requesting all messages.");
-    let mut handles = vec![];
-    for topic in all_topics {
-        handles.push(request_existing_messages(&message, topic.uuid, topic.name.clone()));
+    
+    // Requesting all messages
+    {
+        let mut handles = vec![];
+        for topic in all_topics {
+            handles.push(request_existing_messages(&message, topic.uuid, topic.name.clone()));
+        }
+        for handle in handles {
+            handle.await?;
+        }
     }
-    for handle in handles {
-        handle.await?;
+
+    // Subscribing to live messages
+    let receiver = MessageReceiver { topic_name: wanted_topic_name.to_string() };
+    let receiver_client: message_receiver::Client = capnp_rpc::new_client(receiver);
+    {
+        let mut subscribe_request = message.subscribe_request();
+        let mut builder = subscribe_request.get();
+        builder.set_receiver(receiver_client);
+        let mut uuid_builder = builder.init_topic_id();
+        let (upper, lower) = wanted_topic.uuid.as_u64_pair();
+        uuid_builder.set_upper(upper);
+        uuid_builder.set_lower(lower);
+        subscribe_request.send().promise.await?;
     }
 
     // Do work
     do_work(message, wanted_topic.uuid).await?;
+    println!("All work done");
 
+    rpc_handle.abort();
     Ok(())
 }
 
@@ -157,17 +231,15 @@ async fn request_existing_messages(message: &message_service::Client, topic_uuid
         util_capnp::result::Which::Ok(ok) => {
             let ok = ok?;
             for message in ok.iter() {
-                let author = message.get_author_name()?.to_string()?;
-                let content = message.get_content()?.to_string()?;
-                let timestamp = read_timestamp(message.get_timestamp()?);
-
-                println!("[{topic_name} | {}] {author} |> {content}", timestamp.format("%Y.%m.%d %H:%M"))
+                print_message(&read_capnp_message(message, topic_uuid)?, &topic_name);
             }
         },
     }
 
     Ok(())
 }
+
+
 
 async fn get_all_topics(topic: &topic_service::Client) -> Result<Vec<Topic>, capnp::Error> {
     topic.get_all_topics_request()
@@ -182,15 +254,6 @@ async fn get_all_topics(topic: &topic_service::Client) -> Result<Vec<Topic>, cap
 async fn get_auth_client(root: &root_service::Client) -> Result<auth_service::Client, Box<dyn std::error::Error>> {
     Ok(
         root.auth_request()
-            .send().promise
-            .await?
-            .get()?
-            .get_service()?
-    )
-}
-async fn get_echo_client(root: &root_service::Client) -> Result<echo::Client, Box<dyn std::error::Error>> {
-    Ok(
-        root.echo_request()
             .send().promise
             .await?
             .get()?
@@ -216,11 +279,16 @@ async fn get_message_client(root: &root_service::Client) -> Result<message_servi
     )
 }
 
-fn parse_cli_addr() -> Result<SocketAddr, Box<dyn std::error::Error>> {
-    let addr = match std::env::args().skip(1).next() {
+fn print_usage() {
+    eprintln!("Usage: ./client <address>:<port> <username>");
+}
+
+fn parse_cli_args() -> Result<(SocketAddr, String), Box<dyn std::error::Error>> {
+    let mut args = std::env::args().skip(1);
+    let addr = match args.next() {
         Some(x) => x,
         None => {
-            eprintln!("Usage: ./client <address>:<port>");
+            print_usage();
             return Err("No address provided".into());
         }
     };
@@ -228,17 +296,58 @@ fn parse_cli_addr() -> Result<SocketAddr, Box<dyn std::error::Error>> {
         .next()
         .ok_or("Provided address is invalid")?;
 
-    Ok(addr)
+    let username = match args.next() {
+        Some(x) => x,
+        None => {
+            print_usage();
+            return Err("No username provided".into());
+        },
+    };
+
+    Ok((addr, username))
+}
+
+async fn read_line(reader: &mut (impl AsyncRead + Unpin), buffer: &mut String) -> io::Result<String> {
+    let mut bytes: [u8; 1024] = [0; 1024];
+
+    while !buffer.contains('\n') {
+        let was_read = reader.read(&mut bytes).await?;
+        buffer.push_str(unsafe { from_utf8_unchecked(&bytes[0..was_read]) });
+
+        if was_read == 0 {
+            let result = buffer.clone();
+            buffer.clear();
+            return Ok(result);
+        }
+    }
+
+    match buffer.find('\n') {
+        Some(newline_pos) => {
+            let result = buffer[0..=newline_pos].to_owned();
+            *buffer = buffer[newline_pos + 1 ..].to_owned();
+            Ok(result)
+        }
+        None => {
+            let result = buffer.clone();
+            buffer.clear();
+            Ok(result)
+        }
+    }
 }
 
 async fn do_work(client: message_service::Client, topic_uuid: Uuid) -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = String::new();
     let mut reader = BufReader::new(tokio::io::stdin());
     loop {
-        buf.clear();
-        reader.read_line(&mut buf).await?;
-        let trimmed = buf.trim();
+        print!("\r|> ");
+        stdout().flush()?;
+        let line = read_line(&mut reader, &mut buf).await?;
+        
+        let trimmed = line.trim();
 
+        if line.len() == 0 {
+            break;
+        }
         if trimmed.len() == 0 {
             continue;
         }
@@ -267,7 +376,7 @@ async fn do_work(client: message_service::Client, topic_uuid: Uuid) -> Result<()
             },
             util_capnp::result::Which::Ok(_) => {},
         }
-        println!("Sent: {trimmed} to Topic {topic_uuid}");
+        // println!("Sent: {trimmed} to Topic {topic_uuid}");
     }
 
     Ok(())

@@ -3,11 +3,9 @@
 using Auth = import "auth.capnp";
 using Topic = import "topic.capnp";
 using Message = import "message.capnp";
-using Echo = import "echo.capnp";
 
 interface RootService { 
     auth @0 () -> (service :Auth.AuthService);
-    echo @1 () -> (service :Echo.Echo);
-    topic @2 () -> (service :Topic.TopicService);
-    message @3 () -> (service :Message.MessageService);
+    topic @1 () -> (service :Topic.TopicService);
+    message @2 () -> (service :Message.MessageService);
 }

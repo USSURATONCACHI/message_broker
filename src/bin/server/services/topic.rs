@@ -13,14 +13,16 @@ pub struct TopicService {
 
     login_store: Handle<LoginStore>,
     topic_store: Handle<CrudStore<Topic>>,
+
 }
 
 impl TopicService {
     pub fn new(peer: SocketAddr, stores: &StoreRegistry) -> Self {
+
         Self {
             peer,
-            login_store: stores.get::<LoginStore>(),
-            topic_store: stores.get::<CrudStore<Topic>>(),
+            login_store: stores.get::<Handle<LoginStore>>().clone(),
+            topic_store: stores.get::<Handle<CrudStore<Topic>>>().clone(),
         }
     }
 }

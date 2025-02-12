@@ -16,7 +16,7 @@ impl AuthService {
     pub fn new(peer: SocketAddr, stores: &StoreRegistry) -> Self {
         Self {
             peer,
-            login_store: stores.get::<LoginStore>(),
+            login_store: stores.get::<Handle<LoginStore>>().clone(),
         }
     }
 }

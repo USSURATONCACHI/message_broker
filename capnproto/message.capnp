@@ -28,7 +28,7 @@ interface MessageService {
     getMessagesSync @2 (topicId :Uuid) -> (messages :Result(List(Message), Error));
 
     subscribe @3 (topicId :Uuid, receiver :MessageReceiver) -> (messages :Result(None, Error));
-    unsubscribe @4 (topicId :Uuid, receiver :MessageReceiver) -> (messages :Result(None, Error));
+    unsubscribe @4 (topicId :Uuid, receiver :MessageReceiver) -> ();
 }
 
 interface MessageReceiver {
