@@ -5,6 +5,7 @@ using Util.Uuid;
 using Util.Timestamp;
 using Util.Result;
 using Util.None;
+using Util.Option;
 
 struct Message {
     uuid @0 :Uuid;
@@ -12,7 +13,7 @@ struct Message {
     content @2 :Text;
     timestamp @3 :Timestamp;
     topicUuid @4 :Uuid;
-    key @5 :Text;
+    key @5 :Option(Text);
 }
 
 interface MessageService {

@@ -19,6 +19,7 @@ pub fn read_capnp_message(reader: message_capnp::message::Reader<'_>) -> Result<
         author_name: reader.reborrow().get_author_name()?.to_string()?,
         content: reader.reborrow().get_content()?.to_string()?,
         timestamp: read_capnp_timestamp(reader.reborrow().get_timestamp()?),
+        key: None,
     })
 }
 

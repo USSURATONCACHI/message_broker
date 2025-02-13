@@ -20,3 +20,7 @@ struct Result(T, E) {
 struct None {
     
 }
+
+struct Option(T) {
+    t @0 :T;
+}

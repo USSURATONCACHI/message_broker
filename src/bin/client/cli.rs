@@ -1,44 +1,11 @@
 
 
 use std::net::SocketAddr;
-use std::net::ToSocketAddrs;
 use std::str::from_utf8_unchecked;
 
 use tokio::io;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
-
-pub fn print_usage() {
-    eprintln!("Usage: ./client <address>:<port> <username>");
-}
-
-pub fn parse_cli_args() -> Result<(SocketAddr, String), Box<dyn std::error::Error>> {
-    let mut args = std::env::args().skip(1); // Skip the program name itself.
-
-    // Parse address
-    let addr = match args.next() {
-        Some(x) => x,
-        None => {
-            print_usage();
-            return Err("No address provided".into());
-        }
-    };
-    let addr = addr.to_socket_addrs()?
-        .next()
-        .ok_or("Provided address is invalid")?;
-
-    // Parse username
-    let username = match args.next() {
-        Some(x) => x,
-        None => {
-            print_usage();
-            return Err("No username provided".into());
-        },
-    };
-
-    // Done
-    Ok((addr, username))
-}
 
 pub async fn read_line(reader: &mut (impl AsyncRead + Unpin), buffer: &mut String) -> io::Result<String> {
     let mut bytes: [u8; 1024] = [0; 1024];

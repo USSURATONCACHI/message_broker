@@ -16,15 +16,27 @@ mod cli;
 mod requests;
 mod network;
 
-use cli::{read_line, parse_cli_args};
+use cli::read_line;
 use datatypes::{Message, Topic};
+
+
+use clap::arg;
+use clap::Parser;
+#[derive(Parser, Debug, Clone)]
+pub struct CliArgs {
+    pub address: SocketAddr,
+    pub username: String,
+
+    #[arg(short, long)]
+    pub topics: Vec<String>, 
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (addr, username) = parse_cli_args()?;
-    let wanted_topics = ["general", "meme", "flood"];
+    let args = CliArgs::parse();
+    let wanted_topics = args.topics;
 
-    LocalSet::new().run_until(run_client(addr, username, &wanted_topics)).await?;
+    LocalSet::new().run_until(run_client(args.address, args.username, &wanted_topics)).await?;
     Ok(())
 }
 
@@ -71,7 +83,7 @@ async fn do_work(message_service: &message_service::Client, topics: &[Topic]) ->
     Ok(())
 }
 
-async fn run_client(addr: SocketAddr, username: String, wanted_topic_names: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_client(addr: SocketAddr, username: String, wanted_topic_names: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     // Connect and get services
     println!("Connecting to server on {addr}");
     let (rpc_system, root_service) = connect_to_server(addr).await?;
@@ -87,24 +99,7 @@ async fn run_client(addr: SocketAddr, username: String, wanted_topic_names: &[&s
     show_topics(&topics);
 
     // Get old messages & subscribe to new messages
-    let history_size = 100;
-    let handles = topics.iter()
-        .map(|topic| {
-            let topic_name = topic.name.clone();
-            requests::subscribe_and_get_messages(
-                &message_service, 
-                topic, 
-                move |message| print_message(&message, &topic_name), 
-                history_size
-            )
-        })
-        .collect::<Vec<_>>();
-
-    // Combine results of all requests
-    let topics_histories = join_all(handles).await.into_iter().collect::<Result<Vec<_>, _>>()?;
-    let mut total_history = topics_histories.into_iter().flatten().collect::<Vec<_>>();
-
-    total_history.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    let total_history = get_history_for_topics(&message_service, &topics, 100).await?;
     print_messages(total_history.iter(), &topics);
 
     // Do work
@@ -115,7 +110,7 @@ async fn run_client(addr: SocketAddr, username: String, wanted_topic_names: &[&s
     Ok(())
 }
 
-async fn ensure_topics_exist(topic_service: &topic_service::Client, topics: &[&str]) -> Result<Vec<Topic>, capnp::Error> {
+async fn ensure_topics_exist(topic_service: &topic_service::Client, topics: &[String]) -> Result<Vec<Topic>, capnp::Error> {
     let all_topics = requests::get_all_topics(&topic_service).await?;
     let mut results = vec![];
 
@@ -137,7 +132,27 @@ async fn ensure_topics_exist(topic_service: &topic_service::Client, topics: &[&s
     Ok(results)
 }
 
+async fn get_history_for_topics(message_service: &message_service::Client, topics: &[Topic], max_messages: u32) -> Result<Vec<Message>, capnp::Error> {
+    // Subscribe to all topics in parallel
+    let handles = topics.iter()
+        .map(|topic| {
+            let topic_name = topic.name.clone();
+            requests::subscribe_and_get_messages(
+                &message_service, 
+                topic, 
+                move |message| print_message(&message, &topic_name), 
+                max_messages
+            )
+        })
+        .collect::<Vec<_>>();
 
+    // Combine results of all requests
+    let topics_histories = join_all(handles).await.into_iter().collect::<Result<Vec<_>, _>>()?;
+    let mut total_history = topics_histories.into_iter().flatten().collect::<Vec<_>>();
+
+    total_history.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    Ok(total_history)
+}
 
 // ---- Printing utilities ----
 
@@ -146,7 +161,7 @@ pub fn print_message(message: &Message, topic_name: &str) {
     let author = &message.author_name;
     let content = &message.content;
 
-    println!("\r[{topic_name} | {}] {author} |> {content}", timestamp.format("%Y.%m.%d %H:%M:%S"))
+    println!("\r[{topic_name} | {}] {author} |> {content}", timestamp.with_timezone(&chrono::Local).format("%Y.%m.%d %H:%M:%S"))
 }
 
 fn print_messages<'a>(messages: impl Iterator<Item = &'a Message>, all_topics: &[Topic]) {

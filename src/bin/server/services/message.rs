@@ -49,6 +49,17 @@ impl MessageService {
     }
 }
 
+fn sanitize_text(input: &str) -> String {
+    input.chars()
+        .filter(|&c| {
+            // Preserve tabs, spaces, and non-control characters
+            c == '\t' || c == ' ' || !c.is_control()
+        })
+        // Optional: Add this line to remove ANSI escape sequences
+        //.filter(|&c| c != '\x1B' && !('\x80'..='\x9F').contains(&c))
+        .collect()
+}
+
 impl message_service::Server for MessageService {
     fn post_message(&mut self, params: PostMessageParams, mut results: PostMessageResults) -> Promise<(), Error> { 
         let username = pry!(self.login_store.get().check_login(&self.peer));
@@ -58,6 +69,7 @@ impl message_service::Server for MessageService {
         let topic_uuid = Uuid::from_u64_pair(topic_uuid.get_upper(), topic_uuid.get_lower());
 
         let content = pry!(pry!(reader.get_content()).to_str()).trim();
+        let content = sanitize_text(content);
 
         // Check valid content
         if content.is_empty() {

@@ -19,6 +19,7 @@ pub struct Message {
     pub author_name: String,
     pub content: String,
     pub timestamp: DateTime<Utc>,
+    pub key: Option<String>,
 }
 
 
@@ -26,7 +27,7 @@ impl Display for Topic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Topic '{}' ({})", self.name, self.uuid)?;
         writeln!(f, "\tCreator: {}", self.creator)?;
-        write!(f, "\tTimestamp: {}", self.timestamp.format("%Y.%m.%d %H:%M:%S"))?;
+        write!(f, "\tTimestamp: {}", self.timestamp.with_timezone(&chrono::Local).format("%Y.%m.%d %H:%M:%S"))?;
         Ok(())
     }
 }

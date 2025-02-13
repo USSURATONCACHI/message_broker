@@ -10,7 +10,7 @@ unsafe impl<T> Send for ConcurrentListInner<T> {}
 
 impl<T> Default for ConcurrentListInner<T> {
     fn default() -> Self {
-        Self::new(super::list::DEFAULT_CHUNK_SIZE) // just an ok capacity both in efficeny and performance
+        Self::new(super::concurrent_list::DEFAULT_CHUNK_SIZE) // just an ok capacity both in efficeny and performance
     }
 }
 
