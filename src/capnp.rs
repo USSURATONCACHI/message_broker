@@ -3,10 +3,6 @@ pub mod auth_capnp {
     include!(concat!(env!("OUT_DIR"), "/auth_capnp.rs"));
 }
 
-pub mod echo_capnp {
-    include!(concat!(env!("OUT_DIR"), "/echo_capnp.rs"));
-}
-
 pub mod main_capnp {
     include!(concat!(env!("OUT_DIR"), "/main_capnp.rs"));
 }

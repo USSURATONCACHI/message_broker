@@ -214,9 +214,7 @@ async fn spin_on_messages(mut messages_reader: ConcurrentListRef<Message>, uuid_
     'main: loop {
         let (topic_uuid, receiver) = match uuid_receiver.upgrade() {
             Some(arc) => (arc.0, (&arc.1).clone()),
-            None => {
-                break
-            },
+            None => break,
         };
 
         while let Some(next) = messages_reader.next() {
@@ -231,7 +229,7 @@ async fn spin_on_messages(mut messages_reader: ConcurrentListRef<Message>, uuid_
 
             let mut request = receiver.receive_request();
             fill_capnp_message(request.get().init_message(), message);
-            if let Err(_err) = request.send().await {
+            if request.send().await.is_err() {
                 break 'main;
             }
         }

@@ -3,7 +3,6 @@ mod stores;
 mod datatypes;
 mod fillers;
 mod server;
-mod retention_eater;
 
 use std::io::Write;
 use std::path::PathBuf;
