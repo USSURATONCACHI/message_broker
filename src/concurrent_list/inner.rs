@@ -1,6 +1,9 @@
 use super::chunk::Chunk;
 
 
+/// Inner layer of [`ConcurrentList`]. Holds a pointer to a link in the list.
+/// Owns the data behind it.
+/// Needs to be inside [`Arc`] to work correctly.
 pub struct ConcurrentListInner<T> {
     pub ownership_chunk: *mut Chunk<T>
 }

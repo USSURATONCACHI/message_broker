@@ -3,13 +3,16 @@ use std::io::{stdout, Write};
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use broker::topic_capnp::topic_service;
 use chrono::Duration;
 use futures::future::join_all;
 use network::connect_to_server;
 use tokio::{io::BufReader, task::LocalSet};
+use cli::read_line;
+use clap::{arg, Parser};
 
+use broker::topic_capnp::topic_service;
 use broker::message_capnp::message_service;
+use datatypes::{Message, Topic};
 
 mod datatypes;
 mod message_receiver_impl;
@@ -18,12 +21,7 @@ mod cli;
 mod requests;
 mod network;
 
-use cli::read_line;
-use datatypes::{Message, Topic};
 
-
-use clap::arg;
-use clap::Parser;
 #[derive(Parser, Debug, Clone)]
 pub struct CliArgs {
     pub username: String,

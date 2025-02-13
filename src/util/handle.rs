@@ -1,5 +1,24 @@
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+/// A thread-safe, shared handle to a value protected by a read-write lock.
+///
+/// Cloning creates new references to the same data. Uses [`RwLock`] for interior mutability.
+///
+/// # Examples
+///
+/// Basic usage:
+/// ```
+/// use broker::util::Handle;
+///
+/// let handle = Handle::<Vec<i32>>::new();
+/// handle.get_mut().push(1);
+///
+/// let handle2 = handle.clone();
+/// assert_eq!(handle2.get().len(), 1);
+///
+/// handle.get_mut().push(2);
+/// assert_eq!(handle2.get().len(), 2);
+/// ```
 pub struct Handle<T>(pub Arc<RwLock<T>>);
 
 impl<T> Clone for Handle<T> {
