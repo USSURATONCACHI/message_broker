@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use broker::concurrent_list::{ConcurrentListRef, ConcurrentList, APPEND_LOCKS, APPEND_MISSES, READ_LOCKS, TOTAL_APPENDS, TOTAL_ELEMENTS_WRITTEN, TOTAL_READS};
 
-async fn print_array(reader_id: usize, array: ConcurrentListRef<String>) {
+fn print_array(reader_id: usize, array: ConcurrentListRef<String>) {
     let mut total_read = 0usize;
     for elem in array {
         let elem = match elem.deref() {
@@ -17,7 +17,7 @@ async fn print_array(reader_id: usize, array: ConcurrentListRef<String>) {
     println!("Reader {reader_id}, {total_read} elements was read");
 }
 
-async fn push_to_array(writer_id: usize, mut array: ConcurrentListRef<String>) {
+fn push_to_array(writer_id: usize, mut array: ConcurrentListRef<String>) {
     for i in 0..1000 {
         array.push(format!("Phrase {} - {}", writer_id, i));
         TOTAL_ELEMENTS_WRITTEN.fetch_add(1, Ordering::Relaxed);
@@ -36,20 +36,20 @@ async fn main() {
     // Add N writers
     for i in 0..1000 {
         let array = array.reference();
-        let t = tokio::spawn(push_to_array(i, array));
+        let t = std::thread::spawn(move || push_to_array(i, array));
         all_threads.push(t);
     }
 
     // Add N readers
     for i in 0..1000 {
         let array = array.reference();
-        let t = tokio::spawn(print_array(i, array));
+        let t = std::thread::spawn(move || print_array(i, array));
         all_threads.push(t);
     }
 
     // Wait on threads    
     for t in all_threads {
-        match t.await {
+        match t.join() {
             Ok(_) => {}
             Err(e) => {
                 println!("Thread failed: {:?}", e);
