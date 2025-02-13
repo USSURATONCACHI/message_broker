@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::io::{stdout, Write};
 use std::net::SocketAddr;
+use std::str::FromStr;
 
 use broker::topic_capnp::topic_service;
+use chrono::Duration;
 use futures::future::join_all;
 use network::connect_to_server;
 use tokio::{io::BufReader, task::LocalSet};
@@ -24,8 +26,10 @@ use clap::arg;
 use clap::Parser;
 #[derive(Parser, Debug, Clone)]
 pub struct CliArgs {
-    pub address: SocketAddr,
     pub username: String,
+
+    #[arg(short, long, default_value_t = SocketAddr::from_str("127.0.0.1:8080").unwrap())]
+    pub address: SocketAddr,
 
     #[arg(short, long)]
     pub topics: Vec<String>, 
@@ -40,18 +44,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         wanted_topics.push("general".to_string());
     }
 
-    LocalSet::new().run_until(run_client(args.address, args.username, &wanted_topics)).await?;
+    LocalSet::new().run_until(run_client(args.address, args.username, &mut wanted_topics)).await?;
     Ok(())
 }
 
-async fn do_work(message_service: &message_service::Client, topics: &[Topic]) -> Result<(), Box<dyn std::error::Error>> {
+async fn do_work(message_service: &message_service::Client, topic_service: &topic_service::Client, topics: &mut [Topic]) -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = String::new();
     let mut reader = BufReader::new(tokio::io::stdin());
 
-    let mut current_topic = &topics[0];
+    let mut current_topic_id = 0;
+    let mut key: Option<String> = None;
 
     loop {
-        print!("\rv | {} |\n", current_topic.name);
+        print!("\rv | {} |\n", topics[current_topic_id].name);
         stdout().flush()?;
         let line = read_line(&mut reader, &mut buf).await?;
         
@@ -70,20 +75,70 @@ async fn do_work(message_service: &message_service::Client, topics: &[Topic]) ->
                 // Check for commands
                 "/q" | "/stop" => break,
                 "/topic" => {
-                    let find_topic = cmd_args.next().and_then(|topic_name| topics.iter().filter(|t| t.name == topic_name).next());
-                    if let Some(topic) = find_topic {
-                        current_topic = topic;
+                    let find_topic_id = cmd_args.next()
+                        .and_then(
+                            |topic_name| 
+                                topics.iter()
+                                    .enumerate()
+                                    .filter(|(_, t)| t.name == topic_name)
+                                    .map(|(i, _)| i)
+                                    .next()
+                        );
+                    if let Some(topic_id) = find_topic_id {
+                        current_topic_id = topic_id;
                     } else {
                         println!("Available topics: {:?}", topics.iter().map(|t| &t.name).collect::<Box<[_]>>())
                     }
                 }
+                "/key" => {
+                    key = cmd_args.next().map(|x| x.to_string());
+                    println!("New key set: {key:?}");
+                }
+                "/retention" => {
+                    command_retention(topic_service, &mut topics[current_topic_id], cmd_args).await?;
+                }
+
                 _regular_message => {
-                    requests::post_message(message_service, trimmed, current_topic.uuid).await?;
+                    let key_ref = key.as_ref().map(|x| x.as_str());
+                    requests::post_message(message_service, trimmed, topics[current_topic_id].uuid, key_ref).await?;
                 }
             }
         }
     }
 
+    Ok(())
+}
+
+async fn command_retention(topic_service: &topic_service::Client, current_topic: &mut Topic, mut cmd_args: impl Iterator<Item = &str>) -> Result<(), capnp::Error> {
+    if let Some(new_retention) = cmd_args.next() {
+        // Parse retention
+        let new_retention = if new_retention == "-" {
+            Ok(None)
+        } else {
+            new_retention.parse::<f64>().map(|x| Some(x))
+        };
+
+        let new_retention = match new_retention {
+            Err(e) => {
+                eprintln!("Parsing error: {e:?}");
+                return Ok(());
+            }
+            Ok(retention) => retention,
+        };
+        if new_retention.is_some() && new_retention.unwrap() <= 0.0 {
+            eprintln!("Retention must be a positive number");
+            return Ok(());
+        }
+
+        // Apply it
+        current_topic.retention = new_retention.map(|x| Duration::seconds((x * 60.0) as i64));
+
+        let result = requests::update_topic(topic_service, &*current_topic).await?;
+        *current_topic = result;
+    } else {
+        println!("Current retention on topic '{}' is {:?}.", current_topic.name, current_topic.retention);
+        println!("Set retention via `/retention -` of `/retention 12.3` in minutes.");
+    }
     Ok(())
 }
 
@@ -99,7 +154,7 @@ async fn run_client(addr: SocketAddr, username: String, wanted_topic_names: &[St
     requests::autorize(&root_service, &username).await?;
 
     // Get or create topics
-    let topics = ensure_topics_exist(&topic_service, wanted_topic_names).await?;
+    let mut topics = ensure_topics_exist(&topic_service, wanted_topic_names).await?;
     show_topics(&topics);
 
     // Get old messages & subscribe to new messages
@@ -107,7 +162,7 @@ async fn run_client(addr: SocketAddr, username: String, wanted_topic_names: &[St
     print_messages(total_history.iter(), &topics);
 
     // Do work
-    do_work(&message_service, &topics).await?;
+    do_work(&message_service, &topic_service, &mut topics).await?;
     println!("All work done");
 
     rpc_system.abort();

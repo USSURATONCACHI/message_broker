@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-pub struct Handle<T>(Arc<RwLock<T>>);
+pub struct Handle<T>(pub Arc<RwLock<T>>);
 
 impl<T> Clone for Handle<T> {
     fn clone(&self) -> Self {

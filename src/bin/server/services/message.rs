@@ -71,6 +71,13 @@ impl message_service::Server for MessageService {
         let content = pry!(pry!(reader.get_content()).to_str()).trim();
         let content = sanitize_text(content);
 
+        let key = pry!(reader.get_key());
+        let key = if key.has_t() {
+            Some(pry!(pry!(key.get_t()).to_string()))
+        } else {
+            None
+        };
+
         // Check valid content
         if content.is_empty() {
             results.get().init_message().init_err().set_invalid_content(());
@@ -89,6 +96,7 @@ impl message_service::Server for MessageService {
             author_name: username,
             content: content.to_owned(),
             timestamp: Utc::now(),
+            key,
         };
 
         // Fill message response
@@ -213,7 +221,7 @@ async fn spin_on_messages(mut messages_reader: ConcurrentListRef<Message>, uuid_
 
         while let Some(next) = messages_reader.next() {
             let message = match next.deref() {
-                None => continue,
+                None => break,
                 Some(x) => x,
             };
 
@@ -223,12 +231,12 @@ async fn spin_on_messages(mut messages_reader: ConcurrentListRef<Message>, uuid_
 
             let mut request = receiver.receive_request();
             fill_capnp_message(request.get().init_message(), message);
-            if let Err(err) = request.send().await {
-                println!("Server send error: {err:?}");
+            if let Err(_err) = request.send().await {
                 break 'main;
             }
         }
-        tokio::time::sleep(Duration::from_millis(16)).await;
+        // TODO
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
 

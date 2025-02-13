@@ -21,7 +21,6 @@ async fn push_to_array(writer_id: usize, mut array: ConcurrentListRef<String>) {
     for i in 0..1000 {
         array.push(format!("Phrase {} - {}", writer_id, i));
         TOTAL_ELEMENTS_WRITTEN.fetch_add(1, Ordering::Relaxed);
-        // std::thread::sleep(Duration::from_millis(4));
     }
     println!("Writer {writer_id} done.");
 }

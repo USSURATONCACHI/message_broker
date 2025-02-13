@@ -1,9 +1,10 @@
-
 use broker::{auth_capnp::auth_service, main_capnp::root_service, message_capnp::{message_receiver, message_service, reverse_message_iterator}, topic_capnp::topic_service, util_capnp};
 use capnp::Error;
 use uuid::Uuid;
 
-use crate::{datatypes::{Message, Topic}, message_receiver_impl::MessageReceiver, readers::{read_capnp_message, read_capnp_topic}};
+use crate::{datatypes::{Message, Topic}, message_receiver_impl::MessageReceiver, readers::{read_capnp_message, read_capnp_topic, read_capnp_topic_error}};
+
+
 
 pub async fn autorize(root: &root_service::Client, username: &str) -> Result<(), capnp::Error> {
     let auth_service = get_auth_client(&root).await?;
@@ -16,16 +17,20 @@ pub async fn autorize(root: &root_service::Client, username: &str) -> Result<(),
     Ok(())
 }
 
-pub async fn post_message(message_service: &message_service::Client, content: &str, topic_uuid: Uuid) -> Result<Message, capnp::Error> {
+pub async fn post_message(message_service: &message_service::Client, content: &str, topic_uuid: Uuid, key: Option<&str>) -> Result<Message, capnp::Error> {
     let mut request = message_service.post_message_request();
 
     let mut builder = request.get();
     builder.set_content(content);
 
-    let mut capnp_uuid = builder.init_topic_id();
+    let mut capnp_uuid = builder.reborrow().init_topic_id();
     let (upper, lower) = topic_uuid.as_u64_pair();
     capnp_uuid.set_upper(upper);
     capnp_uuid.set_lower(lower);
+
+    if let Some(key) = key {
+        builder.init_key().set_t(key)?;
+    }
 
     let response = request.send().promise.await?;
     let response = response.get()?.get_message()?;
@@ -159,4 +164,32 @@ pub async fn subscribe_and_get_messages(
 
     let history = get_messages_reverse(&old_messages_iter, old_messages_limit).await?;
     Ok(history)
+}
+
+pub async fn update_topic(topic_service: &topic_service::Client, updated: &Topic) -> Result<Topic, capnp::Error> {
+    let mut request = topic_service.update_topic_request();
+    let mut builder = request.get(); 
+    builder.set_name(&updated.name);
+    
+    let mut capnp_topic_id = builder.reborrow().init_topic_id();
+    capnp_topic_id.set_upper(updated.uuid.as_u64_pair().0);
+    capnp_topic_id.set_lower(updated.uuid.as_u64_pair().1);
+
+    match updated.retention {
+        Some(retention) => builder.init_retention().set_minutes(retention.num_seconds() as f64 / 60.0),
+        None => builder.init_retention().set_none(()),
+    }
+
+    let response = request.send().promise.await?;
+
+    let a = response.get()?.get_topic()?;
+    match a.which()? {
+        util_capnp::result::Which::Ok(ok) => {
+            Ok(read_capnp_topic(ok?)?)
+        },
+        util_capnp::result::Which::Err(err) => {
+            read_capnp_topic_error(err?)?;
+            unreachable!();
+        },
+    }
 }

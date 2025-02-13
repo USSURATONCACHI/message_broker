@@ -24,7 +24,7 @@ interface MessageService {
         }
     }
 
-    postMessage @0 (topicId :Uuid, content :Text) -> (message :Result(Message, Error));
+    postMessage @0 (topicId :Uuid, content :Text, key :Option(Text)) -> (message :Result(Message, Error));
     deleteMessage @1 (messageId :Uuid)  -> (result :Result(None, Error));
 
     getMessagesSync @2 (topicId :Uuid) -> (messages :Result(List(Message), Error));

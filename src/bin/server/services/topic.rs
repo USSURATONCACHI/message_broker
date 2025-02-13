@@ -4,16 +4,16 @@ use broker::{topic_capnp::topic_service::{CreateTopicParams, CreateTopicResults,
 use broker::topic_capnp::topic_service;
 use capnp::{capability::Promise, Error};
 use capnp_rpc::pry;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 
 use crate::{datatypes::Topic, fillers::fill_capnp_topic, stores::{CrudStore, LoginStore}};
+
 
 pub struct TopicService {
     peer: SocketAddr,
 
     login_store: Handle<LoginStore>,
     topic_store: Handle<CrudStore<Topic>>,
-
 }
 
 impl TopicService {
@@ -43,6 +43,7 @@ impl topic_service::Server for TopicService {
             name,
             creator: username,
             timestamp: now,
+            retention: None,
         };
 
         let uuid = self.topic_store.get_mut().create(new_topic.clone());
@@ -97,6 +98,15 @@ impl topic_service::Server for TopicService {
         
         let new_name = pry!(pry!(pry!(params.get()).get_name()).to_str()).trim();
 
+        let new_retention = pry!(pry!(params.get()).get_retention());
+        let new_retention: Option<Duration> = match pry!(new_retention.which()) {
+            broker::topic_capnp::retention::Which::None(()) => None,
+            broker::topic_capnp::retention::Which::Minutes(minutes) => {
+                let duration = Duration::from_std(std::time::Duration::from_secs_f64(minutes * 60.0));
+                Some(pry!(duration.map_err(|err| capnp::Error::failed(err.to_string()))))
+            }
+        };
+
         let topic = self.topic_store.get().get(uuid);
 
         match topic {
@@ -110,6 +120,7 @@ impl topic_service::Server for TopicService {
                 } else {
                     let capnp_topic = results.get().init_topic().init_ok();
                     current_topic.name = new_name.into();
+                    current_topic.retention = new_retention;
 
                     fill_capnp_topic(capnp_topic, uuid, &current_topic);
                     self.topic_store.get_mut().update(uuid, current_topic);
@@ -141,5 +152,4 @@ impl topic_service::Server for TopicService {
 
         Promise::ok(())
     }
-
 }

@@ -10,6 +10,7 @@ use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use broker::util::{stream_to_rpc_network, Handle, StoreRegistry};
 use broker::main_capnp::root_service;
 
+use crate::retention_eater;
 use crate::services::{AuthService, MessageService, RootService, TopicService};
 use crate::datatypes::{Topic, Message};
 use crate::stores::{CrudStore, LoginStore};
@@ -37,8 +38,10 @@ impl Server {
     pub fn from_messages(topics: CrudStore<Topic>, messages: ConcurrentList<Message>) -> Self {
         let mut stores = StoreRegistry::new();
 
+        let topics = Handle::from(topics);
+
         stores.add(messages.reference());
-        stores.add(Handle::from(topics));
+        stores.add(topics);
         stores.add(Handle::<LoginStore>::new());
 
         Self {

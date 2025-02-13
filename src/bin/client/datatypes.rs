@@ -1,8 +1,9 @@
 use std::fmt::Display;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
 
+pub type Retention = Option<Duration>;
 
 #[derive(Clone, Debug, Default)]
 pub struct Topic {
@@ -10,6 +11,7 @@ pub struct Topic {
     pub name: String,
     pub creator: String,
     pub timestamp: DateTime<Utc>,
+    pub retention: Retention,
 }
 
 #[derive(Clone, Debug, Default)]
