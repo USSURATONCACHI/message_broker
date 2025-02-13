@@ -4,14 +4,28 @@ mod datatypes;
 mod fillers;
 mod server;
 
-use std::{fs::File, path::{Path, PathBuf}, str::FromStr, sync::Arc};
+use std::io::Write;
+use std::path::PathBuf;
+use std::{fs::File, net::SocketAddr, path::Path, str::FromStr, sync::Arc};
 use tokio::task;
 use server::Server;
+use clap::arg;
+use clap::Parser;
+
+#[derive(Parser, Debug, Clone)]
+pub struct CliArgs {
+    #[arg(short, long, default_value_t = SocketAddr::from_str("127.0.0.1:8080").unwrap())]
+    pub address: SocketAddr,
+
+    #[arg(short, long, default_value_t = String::from("server.save.bin"))]
+    pub state_file: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = CliArgs::parse();
     // Load server
-    let path = PathBuf::from_str("./server.save.bin")?;
+    let path: PathBuf = PathBuf::from_str(&args.state_file)?;
     let addr = "127.0.0.1:8080";
 
     // Run server
@@ -44,10 +58,12 @@ async fn run_server(server: Arc<Server>, addr: &str) {
 async fn save_state(server: &Server, save_path: &Path) -> std::io::Result<()> {
     println!("Saving server state into '{}'...", save_path.display());
     
-    let mut file = File::create("./server.save.bin")?;
+    let mut file = File::create(save_path)?;
 
     bincode::serialize_into(&mut file, &*server)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+    file.flush().unwrap();
 
     Ok(())
 }

@@ -14,7 +14,6 @@ use crate::services::{AuthService, MessageService, RootService, TopicService};
 use crate::datatypes::{Topic, Message};
 use crate::stores::{CrudStore, LoginStore};
 
-
 pub struct Server {
     interrupt: Notify,
     stores: StoreRegistry,

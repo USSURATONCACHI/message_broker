@@ -34,7 +34,11 @@ pub struct CliArgs {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = CliArgs::parse();
-    let wanted_topics = args.topics;
+    let mut wanted_topics = args.topics;
+    if wanted_topics.is_empty() {
+        eprintln!("No topics specified with `--topics`. Choosing 'general' automatically.");
+        wanted_topics.push("general".to_string());
+    }
 
     LocalSet::new().run_until(run_client(args.address, args.username, &wanted_topics)).await?;
     Ok(())
