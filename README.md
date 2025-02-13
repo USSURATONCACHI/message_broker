@@ -1,5 +1,7 @@
 # message_broker
 
+![Demo screenshot](./screenshot.png)
+
 ## Building & running
 
 ### Simlpest case
